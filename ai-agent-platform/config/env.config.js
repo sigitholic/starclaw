@@ -10,6 +10,7 @@ function loadEnvConfig() {
     llmModel: process.env.LLM_MODEL || "gpt-4o-mini",
     openAiApiKey: process.env.OPENAI_API_KEY || "",
     agentChannel: process.env.AGENT_CHANNEL || "local",
+    telegramBotToken: process.env.TELEGRAM_BOT_TOKEN || "",
   };
 }
 

@@ -2,6 +2,8 @@
 
 const { buildDefaultOrchestrator } = require("../core/orchestrator/orchestrator");
 const { loadEnvConfig } = require("../config/env.config");
+const { createLogger } = require("../core/utils/logger");
+const { createTelegramChannel } = require("../core/channels/telegram.channel");
 
 async function runLocalChannel(orchestrator) {
   const result = await orchestrator.run("openclaw-audit", {
@@ -37,9 +39,20 @@ async function runCliChannel(orchestrator) {
 async function main() {
   const env = loadEnvConfig();
   const orchestrator = buildDefaultOrchestrator();
+  const logger = createLogger("channel-runner");
 
   if (env.agentChannel === "cli") {
     await runCliChannel(orchestrator);
+    return;
+  }
+
+  if (env.agentChannel === "telegram") {
+    const telegramChannel = createTelegramChannel({
+      botToken: env.telegramBotToken,
+      orchestrator,
+      logger,
+    });
+    await telegramChannel.start();
     return;
   }
 

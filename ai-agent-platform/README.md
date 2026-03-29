@@ -80,7 +80,8 @@ Konfigurasi via `.env`:
 LLM_PROVIDER=mock         # mock | openai
 LLM_MODEL=gpt-4o-mini     # model OpenAI (jika provider=openai)
 OPENAI_API_KEY=           # wajib jika provider=openai
-AGENT_CHANNEL=local       # local | cli
+AGENT_CHANNEL=local       # local | cli | telegram
+TELEGRAM_BOT_TOKEN=       # wajib jika channel=telegram
 PORT=8080
 DASHBOARD_PORT=3001
 WS_PATH=/ws
@@ -94,7 +95,16 @@ npm run channel:run
 
 # contoh mode cli dengan input custom
 AGENT_CHANNEL=cli npm run channel:run -- "audit openclaw reliability gap"
+
+# contoh mode telegram
+AGENT_CHANNEL=telegram TELEGRAM_BOT_TOKEN=123456:ABC npm run channel:run
 ```
+
+Command Telegram yang didukung:
+- `/start`
+- `/help`
+- `/audit <teks>` (atau kirim teks biasa)
+- `/noc`
 
 ## Dashboard Realtime (Phase 6 Frontend)
 
