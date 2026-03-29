@@ -65,13 +65,39 @@ Script akan mengeksekusi:
 - `platform-assistant` (task default framework)
 - `noc-incident-workflow` (demo multi-agent orchestration)
 - `openclaw-audit` (demo module opsional)
+- `architecture-workflow-update` (update workflow development berbasis audit arsitektur)
+
+## Update workflow development via agen arsitektur
+
+Gunakan task `architecture-workflow-update` untuk memanggil agen arsitektur dan menghasilkan acuan workflow dev terbaru.
+
+Contoh:
+
+```bash
+curl -X POST http://localhost:8080/tasks/run \
+  -H "Content-Type: application/json" \
+  -d '{
+    "task":"architecture-workflow-update",
+    "message":"sinkronkan workflow dev dengan perubahan terbaru dari main",
+    "openclawSnapshot":{
+      "modules":["agent-core","orchestrator","event-bus"],
+      "observability":{"tracing":true,"metrics":true},
+      "reliability":{"retries":true,"queue":false},
+      "memory":{"longTerm":false}
+    }
+  }'
+```
+
+Response berisi:
+- `architectureAudit` (hasil audit gap arsitektur)
+- `workflowUpdate` (branch policy, delivery flow, checklist, definition of done)
 
 ## API Monitoring (Phase 5 Backend)
 
 Backend sekarang menggunakan **Express.js** dengan endpoint:
 
 - `GET /health` -> healthcheck service
-- `POST /tasks/run` -> jalankan task (`platform-assistant`, `openclaw-audit`, atau `noc-incident-workflow`)
+- `POST /tasks/run` -> jalankan task (`platform-assistant`, `openclaw-audit`, `noc-incident-workflow`, atau `architecture-workflow-update`)
 - `GET /events` -> ambil semua event agent
 - `GET /agents/status` -> status aktif/nonaktif tiap agent berdasarkan lifecycle event
 
