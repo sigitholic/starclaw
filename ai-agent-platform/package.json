@@ -1,0 +1,30 @@
+{
+  "name": "starclaw-ai-agent-platform",
+  "version": "0.1.0",
+  "description": "Fondasi arsitektur AI agent Starclaw untuk audit dan improvement dari OpenClaw.",
+  "main": "apps/api/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "install:quick": "npm install && node scripts/install.js",
+    "dev": "node scripts/dev.js",
+    "start:all": "node scripts/start-all.js",
+    "channel:run": "node scripts/channel-runner.js",
+    "dev:dashboard": "next dev apps/dashboard -p 3001",
+    "build:dashboard": "next build apps/dashboard",
+    "start:dashboard": "next start apps/dashboard -p 3001",
+    "seed": "node scripts/seed.js",
+    "test": "node --test tests/unit/*.test.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@xyflow/react": "^12.10.2",
+    "express": "^5.2.1",
+    "next": "^16.2.1",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "ws": "^8.20.0"
+  }
+}
