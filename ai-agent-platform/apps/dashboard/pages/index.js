@@ -34,7 +34,7 @@ export default function Home() {
   const [wsState, setWsState] = useState("disconnected");
 
   useEffect(() => {
-    const ws = new WebSocket("ws://127.0.0.1:8080/ws");
+    const ws = new WebSocket("ws://localhost:8080/ws");
     setWsState("connecting");
 
     ws.onopen = () => setWsState("connected");
@@ -97,7 +97,7 @@ export default function Home() {
           <button
             type="button"
             onClick={async () => {
-              await fetch("http://127.0.0.1:8080/tasks/run", {
+              await fetch("http://localhost:8080/tasks/run", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
