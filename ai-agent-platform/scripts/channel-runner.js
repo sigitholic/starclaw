@@ -51,6 +51,9 @@ async function main() {
       botToken: env.telegramBotToken,
       orchestrator,
       logger,
+      pairingEnabled: env.telegramPairingEnabled,
+      pairingCode: env.telegramPairingCode,
+      pairingStorePath: env.telegramPairingStorePath || undefined,
     });
     await telegramChannel.start();
     return;

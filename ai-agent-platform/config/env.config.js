@@ -11,6 +11,9 @@ function loadEnvConfig() {
     openAiApiKey: process.env.OPENAI_API_KEY || "",
     agentChannel: process.env.AGENT_CHANNEL || "local",
     telegramBotToken: process.env.TELEGRAM_BOT_TOKEN || "",
+    telegramPairingEnabled: (process.env.TELEGRAM_PAIRING_ENABLED || "true").toLowerCase() === "true",
+    telegramPairingCode: process.env.TELEGRAM_PAIRING_CODE || "",
+    telegramPairingStorePath: process.env.TELEGRAM_PAIRING_STORE_PATH || "",
   };
 }
 

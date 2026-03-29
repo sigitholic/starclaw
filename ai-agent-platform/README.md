@@ -82,6 +82,9 @@ LLM_MODEL=gpt-4o-mini     # model OpenAI (jika provider=openai)
 OPENAI_API_KEY=           # wajib jika provider=openai
 AGENT_CHANNEL=local       # local | cli | telegram
 TELEGRAM_BOT_TOKEN=       # wajib jika channel=telegram
+TELEGRAM_PAIRING_ENABLED=true
+TELEGRAM_PAIRING_CODE=change-me
+TELEGRAM_PAIRING_STORE_PATH=   # optional, default: ./data/telegram.pairing.json
 PORT=8080
 DASHBOARD_PORT=3001
 WS_PATH=/ws
@@ -103,8 +106,24 @@ AGENT_CHANNEL=telegram TELEGRAM_BOT_TOKEN=123456:ABC npm run channel:run
 Command Telegram yang didukung:
 - `/start`
 - `/help`
+- `/pair <code>` (wajib untuk registrasi chat)
+- `/unpair`
 - `/audit <teks>` (atau kirim teks biasa)
 - `/noc`
+
+## Security: Telegram Pairing Mode
+
+Untuk keamanan, hanya chat Telegram yang sudah pairing yang bisa berkomunikasi dengan Starclaw.
+
+Alur:
+1. Set `TELEGRAM_PAIRING_ENABLED=true`
+2. Set code rahasia di `TELEGRAM_PAIRING_CODE`
+3. User chat bot lalu jalankan:
+   - `/pair <code-rahasia>`
+4. Chat ID yang berhasil pairing disimpan di store lokal:
+   - default: `data/telegram.pairing.json`
+
+Semua chat yang belum paired akan ditolak untuk command operasional.
 
 ## Dashboard Realtime (Phase 6 Frontend)
 
