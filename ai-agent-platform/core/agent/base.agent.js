@@ -1,5 +1,7 @@
 "use strict";
 
+const { agentConfig } = require("../../config/agent.config");
+
 class BaseAgent {
   constructor({ name, planner, executor, memory, logger }) {
     this.name = name;
@@ -11,10 +13,31 @@ class BaseAgent {
 
   async run(input = {}) {
     this.logger.info("Agent menerima input", { agent: this.name });
-    const plan = await this.planner.createPlan(input);
+    const plannerContext = this.memory.short.buildPlannerContext({
+      maxTokens: agentConfig.defaultTokenBudget,
+      keepRecent: agentConfig.plannerRecentWindow,
+    });
+
+    if (plannerContext.didSummarize) {
+      this.logger.info("Summarization terjadi karena context limit", {
+        agent: this.name,
+        tokenUsage: plannerContext.tokenUsage,
+      });
+    }
+
+    const plan = await this.planner.createPlan({
+      ...input,
+      context: plannerContext,
+    });
     const execution = await this.executor.execute(plan, input);
 
-    this.memory.short.remember({ agent: this.name, input, execution });
+    this.memory.short.remember({
+      agent: this.name,
+      userMessage: typeof input.message === "string" ? input.message : JSON.stringify(input),
+      agentMessage: execution.finalResponse || execution.summary,
+      input,
+      execution,
+    });
 
     return {
       agent: this.name,

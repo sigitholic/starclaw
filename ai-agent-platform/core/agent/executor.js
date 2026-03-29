@@ -23,7 +23,11 @@ class Executor {
 
   async execute(plan, input) {
     const outputs = [];
-    const tokenStats = ensureTokenBudget(input);
+    const tokenStats = ensureTokenBudget({
+      input,
+      planSummary: plan.summary,
+      stepCount: Array.isArray(plan.steps) ? plan.steps.length : 0,
+    });
 
     this.logger.info("Token usage sebelum eksekusi", tokenStats);
 
