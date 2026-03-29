@@ -28,6 +28,19 @@ npm run dev
 npm test
 ```
 
+## Instalasi cepat (seperti OpenClaw style)
+
+```bash
+cd ai-agent-platform
+npm run install:quick
+npm run start:all
+```
+
+Perintah di atas akan:
+- install dependency
+- generate `.env` default bila belum ada
+- menjalankan backend API + dashboard sekaligus
+
 ## Cara pakai agent audit OpenClaw
 
 Jalankan:
@@ -57,6 +70,30 @@ Contoh jalankan task:
 curl -X POST http://localhost:8080/tasks/run \
   -H "Content-Type: application/json" \
   -d '{"task":"openclaw-audit","openclawSnapshot":{"modules":["agent-core"]}}'
+```
+
+## Konfigurasi model, provider, dan channel
+
+Konfigurasi via `.env`:
+
+```env
+LLM_PROVIDER=mock         # mock | openai
+LLM_MODEL=gpt-4o-mini     # model OpenAI (jika provider=openai)
+OPENAI_API_KEY=           # wajib jika provider=openai
+AGENT_CHANNEL=local       # local | cli
+PORT=8080
+DASHBOARD_PORT=3001
+WS_PATH=/ws
+```
+
+Menjalankan channel runner:
+
+```bash
+# pakai AGENT_CHANNEL dari .env
+npm run channel:run
+
+# contoh mode cli dengan input custom
+AGENT_CHANNEL=cli npm run channel:run -- "audit openclaw reliability gap"
 ```
 
 ## Dashboard Realtime (Phase 6 Frontend)

@@ -5,7 +5,10 @@
   "main": "apps/api/index.js",
   "type": "commonjs",
   "scripts": {
+    "install:quick": "npm install && node scripts/install.js",
     "dev": "node scripts/dev.js",
+    "start:all": "node scripts/start-all.js",
+    "channel:run": "node scripts/channel-runner.js",
     "dev:dashboard": "next dev apps/dashboard -p 3001",
     "build:dashboard": "next build apps/dashboard",
     "start:dashboard": "next start apps/dashboard -p 3001",

@@ -1,8 +1,12 @@
 "use strict";
 
+const { loadEnvConfig } = require("./env.config");
+const env = loadEnvConfig();
+
 const appConfig = {
   name: "starclaw-api",
-  port: Number(process.env.PORT || 8080),
+  port: env.port,
+  wsPath: env.wsPath,
 };
 
 module.exports = { appConfig };
