@@ -18,14 +18,20 @@ function createBaseAgent({
   const logger = createLogger(`agent/${name}`);
   const selectedLlmProvider = llmProvider || createDefaultLlmProvider();
   const selectedPromptBuilder = promptBuilder || createPromptBuilder();
-  const planner = new Planner({ llmProvider: selectedLlmProvider, promptBuilder: selectedPromptBuilder, logger });
   const toolsRegistry = createToolRegistry(customTools);
+  
+  const planner = new Planner({ llmProvider: selectedLlmProvider, promptBuilder: selectedPromptBuilder, toolsRegistry, logger });
+  
+  const { Reviewer } = require("./reviewer");
+  const reviewer = new Reviewer({ llmProvider: selectedLlmProvider, logger });
+  
   const executor = new Executor({ toolsRegistry, logger });
   const memory = memoryFactory();
 
   return new BaseAgent({
     name,
     planner,
+    reviewer,
     executor,
     memory,
     logger,

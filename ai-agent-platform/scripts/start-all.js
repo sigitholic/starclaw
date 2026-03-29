@@ -29,6 +29,7 @@ function main() {
     root,
     "dashboard",
   );
+  const channel = run("node", ["scripts/channel-runner.js"], root, "channel");
 
   const shutdown = () => {
     if (!api.killed) {
@@ -37,6 +38,9 @@ function main() {
     if (!dashboard.killed) {
       dashboard.kill("SIGTERM");
     }
+    if (!channel.killed) {
+      channel.kill("SIGTERM");
+    }
     process.exit(0);
   };
 
@@ -44,14 +48,16 @@ function main() {
   process.on("SIGTERM", shutdown);
 
   api.on("exit", () => {
-    if (!dashboard.killed) {
-      dashboard.kill("SIGTERM");
-    }
+    if (!dashboard.killed) dashboard.kill("SIGTERM");
+    if (!channel.killed) channel.kill("SIGTERM");
   });
   dashboard.on("exit", () => {
-    if (!api.killed) {
-      api.kill("SIGTERM");
-    }
+    if (!api.killed) api.kill("SIGTERM");
+    if (!channel.killed) channel.kill("SIGTERM");
+  });
+  channel.on("exit", () => {
+    if (!api.killed) api.kill("SIGTERM");
+    if (!dashboard.killed) dashboard.kill("SIGTERM");
   });
 }
 

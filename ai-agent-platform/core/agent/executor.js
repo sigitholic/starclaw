@@ -34,10 +34,17 @@ class Executor {
 
     this.logger.info("Token usage sebelum eksekusi", tokenStats);
 
+    const startTime = Date.now();
+
     for (const step of plan.steps || []) {
       const tool = this.toolsRegistry.get(step.tool);
       if (!tool) {
-        outputs.push({ step: step.name, status: "skipped", reason: "tool-not-found" });
+        outputs.push({
+          step: step.name,
+          tool: step.tool,         // Optimasi 3: sertakan tool name
+          status: "skipped",
+          reason: "tool-not-found",
+        });
         this.logger.warn("Tool tidak ditemukan", { step: step.name, tool: step.tool });
         continue;
       }
@@ -54,34 +61,29 @@ class Executor {
             await eventBus.emit(EVENT_TYPES.TOOL_CALLED, {
               timestamp: new Date().toISOString(),
               agent: agentName,
-              payload: {
-                step: step.name,
-                tool: step.tool,
-                attempt,
-                maxRetries,
-                timeoutMs,
-              },
+              payload: { step: step.name, tool: step.tool, attempt, maxRetries, timeoutMs },
             });
           }
-          this.logger.info("Memanggil tool", {
+          this.logger.info("Memanggil tool", { step: step.name, tool: step.tool, attempt, maxRetries });
+
+          const output = await this.runWithTimeout(
+            () => tool.run(step.input || input, input),
+            timeoutMs
+          );
+
+          outputs.push({
             step: step.name,
-            tool: step.tool,
+            tool: step.tool,         // Optimasi 3: tool name di output
+            status: "ok",
+            output,
             attempt,
-            maxRetries,
-            timeoutMs,
           });
-          const output = await this.runWithTimeout(() => tool.run(step.input || input), timeoutMs);
-          outputs.push({ step: step.name, status: "ok", output, attempt });
+
           if (eventBus) {
             await eventBus.emit(EVENT_TYPES.TOOL_RESULT, {
               timestamp: new Date().toISOString(),
               agent: agentName,
-              payload: {
-                step: step.name,
-                tool: step.tool,
-                status: "ok",
-                attempt,
-              },
+              payload: { step: step.name, tool: step.tool, status: "ok", attempt },
             });
           }
           this.logger.info("Step dieksekusi", { step: step.name, tool: step.tool, attempt });
@@ -89,16 +91,13 @@ class Executor {
         } catch (error) {
           const canRetry = attempt <= maxRetries;
           this.logger.warn("Tool gagal", {
-            step: step.name,
-            tool: step.tool,
-            attempt,
-            canRetry,
-            message: error.message,
+            step: step.name, tool: step.tool, attempt, canRetry, message: error.message,
           });
 
           if (!canRetry) {
             outputs.push({
               step: step.name,
+              tool: step.tool,       // Optimasi 3: tool name di error output
               status: "error",
               attempt,
               reason: error.message,
@@ -107,13 +106,7 @@ class Executor {
               await eventBus.emit(EVENT_TYPES.TOOL_RESULT, {
                 timestamp: new Date().toISOString(),
                 agent: agentName,
-                payload: {
-                  step: step.name,
-                  tool: step.tool,
-                  status: "error",
-                  attempt,
-                  reason: error.message,
-                },
+                payload: { step: step.name, tool: step.tool, status: "error", attempt, reason: error.message },
               });
             }
             done = true;
@@ -121,6 +114,8 @@ class Executor {
         }
       }
     }
+
+    const executionTimeMs = Date.now() - startTime;
 
     return {
       score: typeof plan.baseScore === "number" ? plan.baseScore : 0,
@@ -130,6 +125,7 @@ class Executor {
       recommendations: plan.recommendations || [],
       finalResponse: plan.finalResponse || null,
       tokenUsage: tokenStats,
+      executionTimeMs,      // Metrik performa baru
     };
   }
 }

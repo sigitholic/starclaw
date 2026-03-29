@@ -6,7 +6,10 @@ function estimateTokens(input) {
   }
 
   const text = typeof input === "string" ? input : JSON.stringify(input);
-  return Math.ceil(text.length / 4);
+  // Fix BUG-05: Gunakan koefisien 3 (bukan 4) untuk estimasi lebih konservatif.
+  // Bahasa Indonesia/campuran cenderung membutuhkan lebih banyak token per karakter.
+  // Untuk produksi: pertimbangkan library 'tiktoken' untuk akurasi penuh.
+  return Math.ceil(text.length / 3);
 }
 
 function ensureTokenBudget(input, budget = 4000) {

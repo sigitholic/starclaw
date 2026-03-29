@@ -4,16 +4,21 @@ const { normalizePlannerDecision } = require("../utils/validator");
 const { EVENT_TYPES } = require("../events/event.types");
 
 class Planner {
-  constructor({ llmProvider, promptBuilder, logger }) {
+  constructor({ llmProvider, promptBuilder, toolsRegistry, logger }) {
     this.llmProvider = llmProvider;
     this.promptBuilder = promptBuilder;
+    this.toolsRegistry = toolsRegistry;
     this.logger = logger;
   }
 
   async createPlan(input) {
     const eventBus = input && input.__eventBus ? input.__eventBus : null;
     const agentName = input && input.__agentName ? input.__agentName : "unknown-agent";
-    const prompt = this.promptBuilder.buildPlanningPrompt(input);
+    
+    // Injeksi dynamic schema tools ke prompt
+    const toolSchemas = this.toolsRegistry ? this.toolsRegistry.getToolSchemas() : [];
+    const prompt = this.promptBuilder.buildPlanningPrompt(input, toolSchemas);
+    
     const rawDecision = await this.llmProvider.plan(prompt, input);
     const normalizedPlan = normalizePlannerDecision(rawDecision);
 

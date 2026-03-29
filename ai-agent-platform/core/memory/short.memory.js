@@ -2,6 +2,7 @@
 
 const { splitContextByBudget } = require("./token.manager");
 const { summarizeInteractions } = require("./summarizer");
+const { createLongMemoryStore } = require("./long.memory");
 
 function createShortMemory() {
   const state = [];
@@ -53,9 +54,15 @@ function createShortMemory() {
   };
 }
 
+/**
+ * Fix BUG-04: createMemory() sekarang expose long memory store.
+ * Sebelumnya long.memory.js sudah ada tapi tidak pernah dipakai oleh agent.
+ * Sekarang agent bisa akses: memory.long.put(), memory.long.get(), memory.long.searchSimilar()
+ */
 function createMemory() {
   return {
     short: createShortMemory(),
+    long: createLongMemoryStore(),
   };
 }
 

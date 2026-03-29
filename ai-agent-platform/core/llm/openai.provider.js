@@ -2,62 +2,222 @@
 
 const { normalizePlannerDecision } = require("../utils/validator");
 
+// ===================================================
+// CIRCUIT BREAKER — mencegah spam ke OpenAI saat down
+// State: CLOSED → OPEN (jika 3 gagal berturut) → HALF-OPEN (coba lagi setelah cooldown)
+// ===================================================
+function createCircuitBreaker({ failureThreshold = 3, cooldownMs = 30000 } = {}) {
+  let state = "CLOSED"; // CLOSED | OPEN | HALF-OPEN
+  let failures = 0;
+  let openedAt = null;
+
+  return {
+    get state() { return state; },
+
+    recordSuccess() {
+      failures = 0;
+      state = "CLOSED";
+    },
+
+    recordFailure() {
+      failures += 1;
+      if (failures >= failureThreshold) {
+        state = "OPEN";
+        openedAt = Date.now();
+      }
+    },
+
+    isAllowed() {
+      if (state === "CLOSED") return true;
+      if (state === "OPEN") {
+        const elapsed = Date.now() - openedAt;
+        if (elapsed >= cooldownMs) {
+          state = "HALF-OPEN";
+          return true; // Beri satu kesempatan untuk coba lagi
+        }
+        return false;
+      }
+      if (state === "HALF-OPEN") return true;
+      return true;
+    },
+  };
+}
+
+// ===================================================
+// EXPONENTIAL BACKOFF — retry dengan jeda meningkat
+// ===================================================
+async function withRetry(fn, { maxRetries = 3, baseDelayMs = 1000 } = {}) {
+  let lastError;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const result = await fn();
+      return result;
+    } catch (err) {
+      lastError = err;
+      if (attempt < maxRetries) {
+        // Exponential backoff: 1s, 2s, 4s, 8s... + random jitter
+        const delay = baseDelayMs * Math.pow(2, attempt) + Math.random() * 500;
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+  throw lastError;
+}
+
+// ===================================================
+// HELPER: Kirim request ke OpenAI Chat Completion
+// ===================================================
+async function callOpenAI({ apiKey, modelName, systemPrompt, userPrompt, temperature = 0.2 }) {
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: modelName,
+      temperature,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: `${userPrompt}\n\nKembalikan response JSON saja tanpa markdown.` },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`OpenAI API error: ${response.status} ${errText}`);
+  }
+
+  const body = await response.json();
+  const content = body?.choices?.[0]?.message?.content || "";
+
+  try {
+    return JSON.parse(content);
+  } catch (_err) {
+    return null;
+  }
+}
+
 function createOpenAIProvider() {
   const apiKey = process.env.OPENAI_API_KEY || "";
   const modelName = process.env.LLM_MODEL || "gpt-4o-mini";
+  const circuit = createCircuitBreaker({ failureThreshold: 3, cooldownMs: 30000 });
 
   return {
+    /**
+     * plan(): Digunakan oleh Planner Agent.
+     * Dilindungi circuit breaker + exponential backoff.
+     */
     async plan(prompt, input = {}) {
-      if (!apiKey) {
-        throw new Error("OPENAI_API_KEY belum diatur untuk provider openai");
-      }
+      if (!apiKey) throw new Error("OPENAI_API_KEY belum diatur untuk provider openai");
 
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: modelName,
-          temperature: 0.2,
-          response_format: { type: "json_object" },
-          messages: [
-            {
-              role: "system",
-              content:
-                "Kamu adalah planner agent. Kembalikan JSON valid action=respond atau action=tool dengan field yang diperlukan.",
-            },
-            {
-              role: "user",
-              content: `${prompt}\n\nKembalikan response JSON saja tanpa markdown.`,
-            },
-          ],
-        }),
-      });
-
-      if (!response.ok) {
-        const errText = await response.text();
-        throw new Error(`OpenAI API error: ${response.status} ${errText}`);
-      }
-
-      const body = await response.json();
-      const content = body?.choices?.[0]?.message?.content || "";
-      let parsed;
-      try {
-        parsed = JSON.parse(content);
-      } catch (_error) {
-        // Fallback aman jika model tidak menghasilkan JSON murni.
-        parsed = {
+      if (!circuit.isAllowed()) {
+        console.warn(`[LLM] Circuit breaker OPEN — fallback ke respond. State: ${circuit.state}`);
+        return normalizePlannerDecision({
           action: "respond",
-          response: `Planner fallback: ${String(content).slice(0, 300)}`,
-          summary: "Fallback karena output model tidak valid JSON",
-        };
+          response: "Sistem AI sementara tidak tersedia (circuit breaker aktif). Silakan coba lagi dalam 30 detik.",
+          summary: "Circuit breaker aktif",
+        });
       }
 
-      // Validasi kompatibilitas schema planner.
-      normalizePlannerDecision(parsed);
-      return parsed;
+      try {
+        const parsed = await withRetry(() => callOpenAI({
+          apiKey, modelName,
+          systemPrompt: prompt,
+          userPrompt: (input && typeof input.message === "string") ? input.message : "Lanjutkan tugas sebelumnya.",
+        }), { maxRetries: 2, baseDelayMs: 1000 });
+
+        circuit.recordSuccess();
+
+        console.log(`[LLM-DEBUG] Raw LLM response action: ${parsed?.action || 'null'}, tool: ${parsed?.tool_name || 'none'}, steps: ${parsed?.steps?.length || 0}`);
+
+        if (!parsed) {
+          return normalizePlannerDecision({
+            action: "respond",
+            response: "Planner fallback: output model tidak menghasilkan JSON valid.",
+            summary: "Fallback JSON tidak valid",
+          });
+        }
+
+        normalizePlannerDecision(parsed);
+        return parsed;
+      } catch (err) {
+        circuit.recordFailure();
+        console.error(`[LLM] Gagal setelah retry. Circuit state: ${circuit.state}. Error: ${err.message}`);
+        return normalizePlannerDecision({
+          action: "respond",
+          response: `LLM tidak dapat diakses saat ini: ${err.message}`,
+          summary: "LLM error fallback",
+        });
+      }
+    },
+
+    /**
+     * review(): Digunakan oleh Reviewer Agent (Security Gate).
+     * Schema: { approved, reason, suggestedChanges }
+     */
+    async review(prompt) {
+      if (!apiKey) throw new Error("OPENAI_API_KEY belum diatur untuk provider openai");
+
+      if (!circuit.isAllowed()) {
+        return { approved: false, reason: "Circuit breaker aktif — reviewer tidak dapat beroperasi.", suggestedChanges: [] };
+      }
+
+      try {
+        const parsed = await withRetry(() => callOpenAI({
+          apiKey, modelName,
+          systemPrompt: "Kamu adalah security reviewer agent. Kembalikan JSON dengan field: approved (boolean), reason (string), suggestedChanges (array of strings).",
+          userPrompt: prompt,
+          temperature: 0.1,
+        }), { maxRetries: 1, baseDelayMs: 500 });
+
+        circuit.recordSuccess();
+
+        if (!parsed) {
+          return { approved: false, reason: "Reviewer: output model tidak valid JSON", suggestedChanges: [] };
+        }
+
+        return {
+          approved: parsed.approved ?? true,
+          reason: parsed.reason || "Diizinkan oleh sistem",
+          suggestedChanges: Array.isArray(parsed.suggestedChanges) ? parsed.suggestedChanges : [],
+        };
+      } catch (err) {
+        circuit.recordFailure();
+        return { approved: false, reason: "Reviewer error: " + err.message, suggestedChanges: [] };
+      }
+    },
+
+    /**
+     * embed(): Hasilkan vector embedding dari teks.
+     * Menggunakan text-embedding-3-small (1536 dimensi).
+     */
+    async embed(text) {
+      if (!apiKey) return null;
+      if (!circuit.isAllowed()) return null;
+
+      try {
+        const response = await fetch("https://api.openai.com/v1/embeddings", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ model: "text-embedding-3-small", input: String(text).slice(0, 8000) }),
+        });
+
+        if (!response.ok) throw new Error(`Embedding API error: ${response.status}`);
+        const body = await response.json();
+        circuit.recordSuccess();
+        return body?.data?.[0]?.embedding || null;
+      } catch (err) {
+        circuit.recordFailure();
+        console.warn(`[LLM] Embedding gagal: ${err.message}`);
+        return null;
+      }
+    },
+
+    getCircuitState() {
+      return circuit.state;
     },
   };
 }

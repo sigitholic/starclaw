@@ -77,7 +77,58 @@ function normalizePlannerDecision(rawDecision) {
     };
   }
 
-  throw new Error("Planner output tidak valid: gunakan action respond/tool atau format plan legacy");
+  // Optimasi 2: Multi-step planning — LLM bisa merencanakan beberapa tool sekaligus
+  if (rawDecision.action === "multi-tool") {
+    if (!Array.isArray(rawDecision.steps) || rawDecision.steps.length === 0) {
+      throw new Error("Planner action=multi-tool wajib punya array steps yang tidak kosong");
+    }
+    const normalizedSteps = rawDecision.steps.map((s, idx) => {
+      if (!s.tool_name && !s.tool) {
+        throw new Error(`Step #${idx + 1} di multi-tool wajib punya tool_name atau tool`);
+      }
+      return {
+        name: s.step_name || s.name || `step-${idx + 1}`,
+        tool: s.tool_name || s.tool,
+        input: s.input || {},
+        timeoutMs: s.timeoutMs,
+        maxRetries: s.maxRetries,
+      };
+    });
+    return {
+      steps: normalizedSteps,
+      summary: rawDecision.summary || `Planner merencanakan ${normalizedSteps.length} langkah sekaligus`,
+      baseScore: typeof rawDecision.baseScore === "number" ? rawDecision.baseScore : 0,
+      gaps: Array.isArray(rawDecision.gaps) ? rawDecision.gaps : [],
+      recommendations: Array.isArray(rawDecision.recommendations) ? rawDecision.recommendations : [],
+      finalResponse: typeof rawDecision.response === "string" ? rawDecision.response : null,
+      plannerDecision: "tool",  // Executor memperlakukan sama seperti "tool" — sequential
+    };
+  }
+  // ===== Fallback Heuristik =====
+  // LLM kadang mengembalikan nama tool di field 'action' (misal: action="cron-tool")
+  // Deteksi pattern ini dan konversi otomatis ke format yang benar
+  if (typeof rawDecision.action === "string" 
+      && rawDecision.action !== "respond" 
+      && rawDecision.action !== "tool" 
+      && rawDecision.action !== "multi-tool") {
+    
+    // Cek apakah action terlihat seperti nama tool (mengandung huruf/dash, bukan kalimat panjang)
+    const looksLikeToolName = /^[a-z0-9_-]+$/i.test(rawDecision.action) && rawDecision.action.length < 50;
+    
+    if (looksLikeToolName) {
+      console.log(`[Validator] Auto-fix: action="${rawDecision.action}" → konversi ke action="tool", tool_name="${rawDecision.action}"`);
+      return normalizePlannerDecision({
+        action: "tool",
+        tool_name: rawDecision.action,
+        step_name: rawDecision.step_name || rawDecision.step || `run-${rawDecision.action}`,
+        input: rawDecision.input || rawDecision.parameters || {},
+        summary: rawDecision.summary || `Memanggil tool ${rawDecision.action}`,
+        response: rawDecision.response,
+      });
+    }
+  }
+
+  throw new Error("Planner output tidak valid: gunakan action respond/tool/multi-tool atau format plan legacy");
 }
 
 module.exports = {

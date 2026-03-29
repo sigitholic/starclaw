@@ -1,5 +1,9 @@
 "use strict";
 
+/**
+ * Mock Provider yang ditingkatkan — mendukung review() dan pola plan() yang lebih pintar.
+ * Digunakan saat OPENAI_API_KEY tidak tersedia.
+ */
 function createMockProvider() {
   return {
     async plan(prompt, input = {}) {
@@ -8,6 +12,20 @@ function createMockProvider() {
       const observability = snapshot.observability || {};
       const reliability = snapshot.reliability || {};
       const userMessage = typeof input.message === "string" ? input.message : "";
+
+      // Cek apakah ada observations dari iterasi sebelumnya (Re-Act loop)
+      const hasObservations = Array.isArray(input.observations) && input.observations.length > 0;
+
+      // Jika ada observations dari tool sebelumnya, respond langsung (akhiri loop)
+      if (hasObservations) {
+        const lastObs = input.observations[input.observations.length - 1];
+        return {
+          action: "respond",
+          response: `Berdasarkan hasil tool terakhir (${lastObs.tool}, status: ${lastObs.status}), tugas telah selesai. ${lastObs.output || ""}`,
+          summary: "Mock planner merespon berdasarkan observations",
+          baseScore: 70,
+        };
+      }
 
       if (userMessage.trim() && !/audit|map|analy/i.test(userMessage)) {
         return {
@@ -52,6 +70,23 @@ function createMockProvider() {
         response: "Audit OpenClaw selesai dieksekusi.",
         gaps,
         recommendations,
+      };
+    },
+
+    /**
+     * review(): Support untuk Reviewer Agent.
+     * Mock selalu approve kecuali ada kata kunci berbahaya.
+     */
+    async review(prompt) {
+      const dangerousPatterns = /rm -rf|format|mkfs|credentials|id_rsa|\.env/i;
+      const isDangerous = dangerousPatterns.test(prompt);
+
+      return {
+        approved: !isDangerous,
+        reason: isDangerous
+          ? "Mock Reviewer: Terdeteksi perintah berbahaya di dalam plan"
+          : "Mock Reviewer: Plan aman untuk dieksekusi",
+        suggestedChanges: isDangerous ? ["Hapus perintah yang berpotensi destruktif"] : [],
       };
     },
   };

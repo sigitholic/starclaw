@@ -4,9 +4,10 @@ const { agentConfig } = require("../../config/agent.config");
 const { EVENT_TYPES } = require("../events/event.types");
 
 class BaseAgent {
-  constructor({ name, planner, executor, memory, logger }) {
+  constructor({ name, planner, reviewer, executor, memory, logger }) {
     this.name = name;
     this.planner = planner;
+    this.reviewer = reviewer;
     this.executor = executor;
     this.memory = memory;
     this.logger = logger;
@@ -47,6 +48,50 @@ class BaseAgent {
       __agentName: this.name,
       __eventBus: eventBus,
     });
+
+    if (this.reviewer && plan.plannerDecision === "tool") {
+      this.logger.info("Meminta Reviewer Agent untuk mengevaluasi plan", { stepCount: plan.steps?.length });
+      
+      if (eventBus) {
+        await eventBus.emit(EVENT_TYPES.PLANNER_DECISION, {
+          timestamp: new Date().toISOString(),
+          agent: this.name + "-reviewer",
+          payload: { summary: "Mengevaluasi keamanan instruksi..." }
+        });
+      }
+
+      const review = await this.reviewer.reviewPlan(plan, cleanInput);
+      
+      if (!review.approved) {
+        this.logger.warn("Agent Veto: Rencana ditolak oleh Reviewer", { reason: review.reason });
+        const vetoExecution = {
+          success: false,
+          summary: "Instruksi diveto oleh Reviewer Agent: " + review.reason,
+          finalResponse: "Sistem Keamanan Starclaw (Reviewer) mencegah saya melakukan tindakan ini. Alasan: " + review.reason,
+          score: 0
+        };
+
+        this.memory.short.remember({
+          agent: this.name,
+          userMessage: typeof cleanInput.message === "string" ? cleanInput.message : JSON.stringify(cleanInput),
+          agentMessage: vetoExecution.finalResponse,
+          input: cleanInput,
+          execution: vetoExecution,
+        });
+
+        if (eventBus) {
+          await eventBus.emit(EVENT_TYPES.AGENT_FINISHED, {
+            timestamp: new Date().toISOString(),
+            agent: this.name,
+            payload: vetoExecution,
+          });
+        }
+
+        return { agent: this.name, plan, ...vetoExecution };
+      }
+      this.logger.info("Reviewer menyetujui plan", { reason: review.reason });
+    }
+
     const execution = await this.executor.execute(plan, {
       ...cleanInput,
       __agentName: this.name,
