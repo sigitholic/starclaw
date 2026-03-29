@@ -6,31 +6,19 @@ const { createLogger } = require("../core/utils/logger");
 const { createTelegramChannel } = require("../core/channels/telegram.channel");
 
 async function runLocalChannel(orchestrator) {
-  const result = await orchestrator.run("openclaw-audit", {
-    message: "audit architecture",
-    openclawSnapshot: {
-      modules: ["agent-core", "basic-tools"],
-      observability: { tracing: false, metrics: false },
-      reliability: { retries: false, queue: false },
-      memory: { longTerm: false },
-    },
+  const result = await orchestrator.run("platform-assistant", {
+    message: "status platform starclaw",
   });
-  console.log("[channel:local] audit result:", {
-    score: result.score,
+  console.log("[channel:local] assistant result:", {
     summary: result.summary,
+    response: result.finalResponse,
   });
 }
 
 async function runCliChannel(orchestrator) {
-  const input = process.argv.slice(2).join(" ") || "please audit openclaw architecture";
-  const result = await orchestrator.run("openclaw-audit", {
+  const input = process.argv.slice(2).join(" ") || "status platform starclaw";
+  const result = await orchestrator.run("platform-assistant", {
     message: input,
-    openclawSnapshot: {
-      modules: ["agent-core"],
-      observability: { tracing: false, metrics: false },
-      reliability: { retries: false, queue: false },
-      memory: { longTerm: false },
-    },
   });
 
   console.log("[channel:cli] final response:", result.finalResponse || result.summary);

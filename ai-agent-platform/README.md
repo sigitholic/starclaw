@@ -1,12 +1,23 @@
 # Starclaw AI Agent Platform
 
-Starclaw adalah platform agent AI modular untuk membangun use case operasional (contoh: NOC), dengan fokus awal melakukan audit arsitektur **OpenClaw** lalu menghasilkan daftar gap dan rekomendasi perbaikan yang bisa dieksekusi.
+Starclaw adalah **framework backend Node.js** untuk membangun AI agent yang modular, scalable, dan observable.
 
-## Tujuan awal
+Starclaw mendukung:
+- Multi-model provider (Mock, OpenAI, dan extensible ke provider lain)
+- CLI interaktif (channel runner berbasis command)
+- Event-driven architecture (monitoring + dashboard realtime)
+- Tool execution system
+- Memory management (short-term, siap upgrade RAG)
+- Extensible multi-agent orchestration
 
-1. Memetakan komponen OpenClaw saat ini.
-2. Mencari kekurangan arsitektur (missing module, coupling, observability, memory, reliability).
-3. Menghasilkan prioritas improvement untuk roadmap Starclaw.
+> Ini **bukan clone OpenClaw**.  
+> OpenClaw audit di repo ini adalah **demo module** untuk menunjukkan extensibility framework.
+
+## Tujuan platform
+
+1. Menjadi fondasi backend AI agent yang bisa diperluas lintas use case.
+2. Menyediakan kontrol runtime (model, provider, channel, observability).
+3. Menyediakan arsitektur event-driven untuk monitoring dan dashboard.
 
 ## Struktur
 
@@ -41,7 +52,7 @@ Perintah di atas akan:
 - generate `.env` default bila belum ada
 - menjalankan backend API + dashboard sekaligus
 
-## Cara pakai agent audit OpenClaw
+## Cara pakai framework core (default)
 
 Jalankan:
 
@@ -49,18 +60,18 @@ Jalankan:
 npm run seed
 ```
 
-Script akan mengeksekusi `openclaw-architecture-mapper` terhadap snapshot komponen OpenClaw contoh, lalu menampilkan:
+Script akan mengeksekusi:
 
-- komponen yang ditemukan
-- gap utama
-- rekomendasi improvement Starclaw
+- `platform-assistant` (task default framework)
+- `noc-incident-workflow` (demo multi-agent orchestration)
+- `openclaw-audit` (demo module opsional)
 
 ## API Monitoring (Phase 5 Backend)
 
 Backend sekarang menggunakan **Express.js** dengan endpoint:
 
 - `GET /health` -> healthcheck service
-- `POST /tasks/run` -> jalankan task (`openclaw-audit` atau `noc-incident-workflow`)
+- `POST /tasks/run` -> jalankan task (`platform-assistant`, `openclaw-audit`, atau `noc-incident-workflow`)
 - `GET /events` -> ambil semua event agent
 - `GET /agents/status` -> status aktif/nonaktif tiap agent berdasarkan lifecycle event
 
