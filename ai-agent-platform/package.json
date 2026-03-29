@@ -1,0 +1,16 @@
+{
+  "name": "starclaw-ai-agent-platform",
+  "version": "0.1.0",
+  "description": "Fondasi arsitektur AI agent Starclaw untuk audit dan improvement dari OpenClaw.",
+  "main": "apps/api/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "dev": "node scripts/dev.js",
+    "seed": "node scripts/seed.js",
+    "test": "node --test tests/unit/*.test.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "MIT"
+}
