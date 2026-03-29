@@ -1,20 +1,22 @@
 "use strict";
 
+const { EventEmitter } = require("events");
+
 function createEventBus() {
-  const handlers = new Map();
+  const emitter = new EventEmitter();
 
   return {
     on(eventType, handler) {
-      if (!handlers.has(eventType)) {
-        handlers.set(eventType, []);
-      }
-      handlers.get(eventType).push(handler);
+      emitter.on(eventType, handler);
     },
     async emit(eventType, payload) {
-      const eventHandlers = handlers.get(eventType) || [];
+      const eventHandlers = emitter.listeners(eventType);
       for (const handler of eventHandlers) {
         await handler(payload);
       }
+    },
+    raw() {
+      return emitter;
     },
   };
 }

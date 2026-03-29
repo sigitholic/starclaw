@@ -7,6 +7,7 @@ const { buildDefaultOrchestrator } = require("../../core/orchestrator/orchestrat
 const { normalizePlannerDecision } = require("../../core/utils/validator");
 const { createToolRegistry } = require("../../core/tools");
 const { createShortMemory } = require("../../core/memory/short.memory");
+const { EVENT_TYPES } = require("../../core/events/event.types");
 
 test("openclaw-audit menghasilkan gap utama", async () => {
   const orchestrator = buildDefaultOrchestrator();
@@ -55,4 +56,28 @@ test("memory planner context menyimpan recent 3 dan summary saat limit kecil", (
   assert.equal(typeof context.didSummarize, "boolean");
   assert.equal(typeof context.fullHistoryUsage.used, "number");
   assert.ok(context.didSummarize);
+});
+
+test("workflow noc multi-agent memancarkan event berurutan", async () => {
+  const orchestrator = buildDefaultOrchestrator();
+  const result = await orchestrator.run("noc-incident-workflow", {
+    taskId: "noc-test-1",
+    signal: "packet-loss",
+    severity: "high",
+    action: "reroute-link",
+  });
+
+  assert.equal(result.workflow, "monitor-analyzer-executor");
+  assert.equal(result.monitor.agent, "noc-monitor-agent");
+  assert.equal(result.analyzer.agent, "noc-analyzer-agent");
+  assert.equal(result.executor.agent, "noc-executor-agent");
+
+  const events = orchestrator.getEvents().map((entry) => entry.type);
+  const taskCreatedIndex = events.indexOf(EVENT_TYPES.TASK_CREATED);
+  const taskAnalyzedIndex = events.indexOf(EVENT_TYPES.TASK_ANALYZED);
+  const actionExecutedIndex = events.indexOf(EVENT_TYPES.ACTION_EXECUTED);
+
+  assert.ok(taskCreatedIndex >= 0);
+  assert.ok(taskAnalyzedIndex > taskCreatedIndex);
+  assert.ok(actionExecutedIndex > taskAnalyzedIndex);
 });

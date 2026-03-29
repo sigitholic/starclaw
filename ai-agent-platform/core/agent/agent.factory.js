@@ -8,14 +8,20 @@ const { createDefaultLlmProvider, createPromptBuilder } = require("../llm/llm.pr
 const { createMemory } = require("../memory/short.memory");
 const { createLogger } = require("../utils/logger");
 
-function createBaseAgent({ name, customTools = [] }) {
+function createBaseAgent({
+  name,
+  customTools = [],
+  llmProvider,
+  promptBuilder,
+  memoryFactory = createMemory,
+}) {
   const logger = createLogger(`agent/${name}`);
-  const llmProvider = createDefaultLlmProvider();
-  const promptBuilder = createPromptBuilder();
-  const planner = new Planner({ llmProvider, promptBuilder, logger });
+  const selectedLlmProvider = llmProvider || createDefaultLlmProvider();
+  const selectedPromptBuilder = promptBuilder || createPromptBuilder();
+  const planner = new Planner({ llmProvider: selectedLlmProvider, promptBuilder: selectedPromptBuilder, logger });
   const toolsRegistry = createToolRegistry(customTools);
   const executor = new Executor({ toolsRegistry, logger });
-  const memory = createMemory();
+  const memory = memoryFactory();
 
   return new BaseAgent({
     name,

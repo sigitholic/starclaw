@@ -26,6 +26,20 @@ async function main() {
   console.log("Score:", result.score);
   console.log("Gaps:", result.gaps);
   console.log("Recommendations:", result.recommendations);
+
+  const nocResult = await orchestrator.run("noc-incident-workflow", {
+    taskId: "noc-seed-1",
+    signal: "high-latency",
+    severity: "high",
+    action: "reroute-link",
+  });
+
+  console.log("\n=== HASIL WORKFLOW NOC MULTI-AGENT ===");
+  console.log("Workflow:", nocResult.workflow);
+  console.log("Task ID:", nocResult.taskId);
+  console.log("Monitor:", nocResult.monitor.finalResponse);
+  console.log("Analyzer:", nocResult.analyzer.finalResponse);
+  console.log("Executor:", nocResult.executor.finalResponse);
 }
 
 main().catch((error) => {
