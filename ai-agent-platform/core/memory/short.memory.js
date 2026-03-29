@@ -46,6 +46,7 @@ function createShortMemory() {
         summary,
         recent: refreshed.recent,
         tokenUsage: refreshed.tokenUsage,
+        fullHistoryUsage: refreshed.fullHistoryUsage,
         didSummarize,
       };
     },

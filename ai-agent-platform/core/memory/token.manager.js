@@ -34,13 +34,22 @@ function splitContextByBudget({
   };
 
   const tokenUsage = ensureTokenBudget(payload, maxTokens);
-  const shouldSummarizeOlder = tokenUsage.used > maxTokens && older.length > 0;
+  const fullHistoryUsage = ensureTokenBudget(
+    {
+      summary: previousSummary || "",
+      older,
+      recent,
+    },
+    maxTokens,
+  );
+  const shouldSummarizeOlder = fullHistoryUsage.used > maxTokens && older.length > 0;
 
   return {
     older,
     recent,
     payload,
     tokenUsage,
+    fullHistoryUsage,
     shouldSummarizeOlder,
   };
 }

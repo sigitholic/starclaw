@@ -22,6 +22,7 @@ class BaseAgent {
       this.logger.info("Summarization terjadi karena context limit", {
         agent: this.name,
         tokenUsage: plannerContext.tokenUsage,
+        fullHistoryUsage: plannerContext.fullHistoryUsage,
       });
     }
 

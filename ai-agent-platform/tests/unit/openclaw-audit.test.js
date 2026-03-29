@@ -53,4 +53,6 @@ test("memory planner context menyimpan recent 3 dan summary saat limit kecil", (
   assert.equal(typeof context.summary, "string");
   assert.ok(context.summary.length > 0);
   assert.equal(typeof context.didSummarize, "boolean");
+  assert.equal(typeof context.fullHistoryUsage.used, "number");
+  assert.ok(context.didSummarize);
 });
