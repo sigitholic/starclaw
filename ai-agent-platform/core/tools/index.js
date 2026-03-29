@@ -2,12 +2,16 @@
 
 const { createHttpTool } = require("./http.tool");
 const { createTimeTool } = require("./time.tool");
+const { validateToolContract } = require("../utils/validator");
 
 function createToolRegistry(customTools = []) {
   const tools = new Map();
 
   const builtins = [createHttpTool(), createTimeTool(), ...customTools];
-  builtins.forEach((tool) => tools.set(tool.name, tool));
+  builtins.forEach((tool) => {
+    validateToolContract(tool);
+    tools.set(tool.name, tool);
+  });
 
   return {
     get(name) {

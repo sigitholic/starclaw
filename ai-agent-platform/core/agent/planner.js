@@ -1,15 +1,25 @@
 "use strict";
 
+const { normalizePlannerDecision } = require("../utils/validator");
+
 class Planner {
-  constructor({ llmProvider, promptBuilder }) {
+  constructor({ llmProvider, promptBuilder, logger }) {
     this.llmProvider = llmProvider;
     this.promptBuilder = promptBuilder;
+    this.logger = logger;
   }
 
   async createPlan(input) {
     const prompt = this.promptBuilder.buildPlanningPrompt(input);
-    const plan = await this.llmProvider.plan(prompt, input);
-    return plan;
+    const rawDecision = await this.llmProvider.plan(prompt, input);
+    const normalizedPlan = normalizePlannerDecision(rawDecision);
+
+    this.logger.info("Planner decision", {
+      decision: normalizedPlan.plannerDecision,
+      stepCount: normalizedPlan.steps.length,
+    });
+
+    return normalizedPlan;
   }
 }
 

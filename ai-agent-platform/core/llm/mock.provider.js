@@ -7,6 +7,16 @@ function createMockProvider() {
       const modules = snapshot.modules || [];
       const observability = snapshot.observability || {};
       const reliability = snapshot.reliability || {};
+      const userMessage = typeof input.message === "string" ? input.message : "";
+
+      if (userMessage.trim() && !/audit|map|analy/i.test(userMessage)) {
+        return {
+          action: "respond",
+          response: `Pesan diterima: "${userMessage}". Gunakan kata kunci audit/map/analyze untuk memicu tool audit OpenClaw.`,
+          summary: "Planner memutuskan direct response",
+          baseScore: 0,
+        };
+      }
 
       const gaps = [];
       const recommendations = [];
@@ -31,15 +41,15 @@ function createMockProvider() {
       }
 
       return {
-        steps: [
-          {
-            name: "map-openclaw-architecture",
-            tool: "openclaw-gap-analyzer-tool",
-            input,
-          },
-        ],
+        action: "tool",
+        tool_name: "openclaw-gap-analyzer-tool",
+        input,
+        step_name: "map-openclaw-architecture",
+        timeoutMs: 3000,
+        maxRetries: 1,
         summary: `Rencana audit dibuat dari prompt: ${prompt.slice(0, 80)}...`,
         baseScore: Math.max(score, 0),
+        response: "Audit OpenClaw selesai dieksekusi.",
         gaps,
         recommendations,
       };
