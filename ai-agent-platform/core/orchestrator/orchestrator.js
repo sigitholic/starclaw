@@ -55,6 +55,9 @@ function buildDefaultOrchestrator(customRoutes = {}) {
     getEvents() {
       return eventStore.list();
     },
+    subscribe(eventType, handler) {
+      eventBus.on(eventType, handler);
+    },
   };
 }
 

@@ -59,6 +59,28 @@ curl -X POST http://localhost:8080/tasks/run \
   -d '{"task":"openclaw-audit","openclawSnapshot":{"modules":["agent-core"]}}'
 ```
 
+## Dashboard Realtime (Phase 6 Frontend)
+
+Frontend dashboard menggunakan **Next.js** + **React Flow** dan menerima event realtime dari backend via WebSocket.
+
+- WebSocket endpoint backend: `ws://127.0.0.1:8080/ws`
+- Dashboard URL: `http://127.0.0.1:3001`
+
+Jalankan backend + dashboard:
+
+```bash
+# terminal 1
+npm run dev
+
+# terminal 2
+npm run dev:dashboard
+```
+
+Fitur dashboard:
+- Event timeline realtime (log list)
+- Graph agent workflow (monitor -> analyzer -> executor)
+- Tombol trigger workflow NOC dari UI
+
 ## Prinsip arsitektur
 
 - Core system harus stabil, modular, dan tidak tercampur logic infra.

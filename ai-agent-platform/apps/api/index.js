@@ -1,6 +1,8 @@
 "use strict";
 
 const express = require("express");
+const http = require("http");
+const { WebSocketServer } = require("ws");
 const { createLogger } = require("../../core/utils/logger");
 const { appConfig } = require("../../config/app.config");
 const { buildDefaultOrchestrator } = require("../../core/orchestrator/orchestrator");
@@ -9,8 +11,19 @@ const { EVENT_TYPES } = require("../../core/events/event.types");
 const logger = createLogger("apps/api");
 const orchestrator = buildDefaultOrchestrator();
 const app = express();
+const server = http.createServer(app);
+const wsServer = new WebSocketServer({ server, path: "/ws" });
 
 app.use(express.json());
+
+function sendWsMessage(data) {
+  const serialized = JSON.stringify(data);
+  wsServer.clients.forEach((client) => {
+    if (client.readyState === 1) {
+      client.send(serialized);
+    }
+  });
+}
 
 app.get("/health", (_req, res) => {
   res.status(200).json({ status: "ok", service: "starclaw-api" });
@@ -65,6 +78,14 @@ app.post("/tasks/run", async (req, res) => {
     const payload = { ...body };
     delete payload.task;
     const result = await orchestrator.run(task, payload);
+    sendWsMessage({
+      type: "task_run_result",
+      timestamp: new Date().toISOString(),
+      payload: {
+        task,
+        resultSummary: result.summary || null,
+      },
+    });
     res.status(200).json({ ok: true, result });
   } catch (error) {
     logger.error("Task execution error", { message: error.message });
@@ -76,6 +97,36 @@ app.use((_req, res) => {
   res.status(404).json({ error: "Not Found" });
 });
 
-app.listen(appConfig.port, () => {
+wsServer.on("connection", (socket) => {
+  socket.send(
+    JSON.stringify({
+      type: "connected",
+      timestamp: new Date().toISOString(),
+      payload: { service: "starclaw-api" },
+    }),
+  );
+});
+
+const streamableEvents = [
+  EVENT_TYPES.AGENT_STARTED,
+  EVENT_TYPES.PLANNER_DECISION,
+  EVENT_TYPES.TOOL_CALLED,
+  EVENT_TYPES.TOOL_RESULT,
+  EVENT_TYPES.AGENT_FINISHED,
+  EVENT_TYPES.TASK_CREATED,
+  EVENT_TYPES.TASK_ANALYZED,
+  EVENT_TYPES.ACTION_EXECUTED,
+];
+
+for (const eventType of streamableEvents) {
+  orchestrator.subscribe(eventType, (payload) => {
+    sendWsMessage({
+      type: eventType,
+      ...payload,
+    });
+  });
+}
+
+server.listen(appConfig.port, () => {
   logger.info("API aktif", { port: appConfig.port });
 });
