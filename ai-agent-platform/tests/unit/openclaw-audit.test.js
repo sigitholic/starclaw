@@ -81,3 +81,33 @@ test("workflow noc multi-agent memancarkan event berurutan", async () => {
   assert.ok(taskAnalyzedIndex > taskCreatedIndex);
   assert.ok(actionExecutedIndex > taskAnalyzedIndex);
 });
+
+test("phase-4 trace event tersedia dengan payload terstruktur", async () => {
+  const orchestrator = buildDefaultOrchestrator();
+  await orchestrator.run("openclaw-audit", {
+    message: "please audit architecture",
+    openclawSnapshot: {
+      modules: ["agent-core"],
+      observability: { tracing: false, metrics: false },
+      reliability: { retries: false, queue: false },
+      memory: { longTerm: false },
+    },
+  });
+
+  const events = orchestrator.getEvents();
+  const mustExist = [
+    EVENT_TYPES.AGENT_STARTED,
+    EVENT_TYPES.PLANNER_DECISION,
+    EVENT_TYPES.TOOL_CALLED,
+    EVENT_TYPES.TOOL_RESULT,
+    EVENT_TYPES.AGENT_FINISHED,
+  ];
+
+  for (const eventType of mustExist) {
+    const traceEvent = events.find((entry) => entry.type === eventType);
+    assert.ok(traceEvent, `event ${eventType} harus ada`);
+    assert.equal(typeof traceEvent.payload.timestamp, "string");
+    assert.equal(typeof traceEvent.payload.agent, "string");
+    assert.equal(typeof traceEvent.payload.payload, "object");
+  }
+});

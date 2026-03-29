@@ -21,6 +21,13 @@ function buildDefaultOrchestrator(customRoutes = {}) {
   eventBus.on(EVENT_TYPES.TASK_CREATED, (payload) => eventStore.add({ type: EVENT_TYPES.TASK_CREATED, payload }));
   eventBus.on(EVENT_TYPES.TASK_ANALYZED, (payload) => eventStore.add({ type: EVENT_TYPES.TASK_ANALYZED, payload }));
   eventBus.on(EVENT_TYPES.ACTION_EXECUTED, (payload) => eventStore.add({ type: EVENT_TYPES.ACTION_EXECUTED, payload }));
+  eventBus.on(EVENT_TYPES.AGENT_STARTED, (payload) => eventStore.add({ type: EVENT_TYPES.AGENT_STARTED, payload }));
+  eventBus.on(EVENT_TYPES.PLANNER_DECISION, (payload) =>
+    eventStore.add({ type: EVENT_TYPES.PLANNER_DECISION, payload }),
+  );
+  eventBus.on(EVENT_TYPES.TOOL_CALLED, (payload) => eventStore.add({ type: EVENT_TYPES.TOOL_CALLED, payload }));
+  eventBus.on(EVENT_TYPES.TOOL_RESULT, (payload) => eventStore.add({ type: EVENT_TYPES.TOOL_RESULT, payload }));
+  eventBus.on(EVENT_TYPES.AGENT_FINISHED, (payload) => eventStore.add({ type: EVENT_TYPES.AGENT_FINISHED, payload }));
 
   return {
     async run(taskName, payload) {
@@ -32,7 +39,10 @@ function buildDefaultOrchestrator(customRoutes = {}) {
           result = await runNocMultiAgentWorkflow({ payload: payload || {}, eventBus });
         } else {
           const agent = taskRouter.resolve(taskName);
-          result = await workflowEngine.run(agent, payload);
+          result = await workflowEngine.run(agent, {
+            ...(payload || {}),
+            __eventBus: eventBus,
+          });
         }
         await eventBus.emit(EVENT_TYPES.TASK_COMPLETED, { taskName, result });
         return result;

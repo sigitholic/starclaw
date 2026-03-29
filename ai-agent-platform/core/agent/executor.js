@@ -1,6 +1,7 @@
 "use strict";
 
 const { ensureTokenBudget } = require("../memory/token.manager");
+const { EVENT_TYPES } = require("../events/event.types");
 
 class Executor {
   constructor({ toolsRegistry, logger }) {
@@ -22,6 +23,8 @@ class Executor {
   }
 
   async execute(plan, input) {
+    const eventBus = input && input.__eventBus ? input.__eventBus : null;
+    const agentName = input && input.__agentName ? input.__agentName : "unknown-agent";
     const outputs = [];
     const tokenStats = ensureTokenBudget({
       input,
@@ -47,6 +50,19 @@ class Executor {
       while (!done && attempt <= maxRetries) {
         try {
           attempt += 1;
+          if (eventBus) {
+            await eventBus.emit(EVENT_TYPES.TOOL_CALLED, {
+              timestamp: new Date().toISOString(),
+              agent: agentName,
+              payload: {
+                step: step.name,
+                tool: step.tool,
+                attempt,
+                maxRetries,
+                timeoutMs,
+              },
+            });
+          }
           this.logger.info("Memanggil tool", {
             step: step.name,
             tool: step.tool,
@@ -56,6 +72,18 @@ class Executor {
           });
           const output = await this.runWithTimeout(() => tool.run(step.input || input), timeoutMs);
           outputs.push({ step: step.name, status: "ok", output, attempt });
+          if (eventBus) {
+            await eventBus.emit(EVENT_TYPES.TOOL_RESULT, {
+              timestamp: new Date().toISOString(),
+              agent: agentName,
+              payload: {
+                step: step.name,
+                tool: step.tool,
+                status: "ok",
+                attempt,
+              },
+            });
+          }
           this.logger.info("Step dieksekusi", { step: step.name, tool: step.tool, attempt });
           done = true;
         } catch (error) {
@@ -75,6 +103,19 @@ class Executor {
               attempt,
               reason: error.message,
             });
+            if (eventBus) {
+              await eventBus.emit(EVENT_TYPES.TOOL_RESULT, {
+                timestamp: new Date().toISOString(),
+                agent: agentName,
+                payload: {
+                  step: step.name,
+                  tool: step.tool,
+                  status: "error",
+                  attempt,
+                  reason: error.message,
+                },
+              });
+            }
             done = true;
           }
         }

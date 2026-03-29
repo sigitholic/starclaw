@@ -15,6 +15,7 @@ async function runNocMultiAgentWorkflow({ payload = {}, eventBus }) {
     taskId,
     signal: payload.signal || "incident-detected",
     message: payload.message || "monitor incoming task",
+    __eventBus: eventBus,
   };
 
   const monitorResult = await monitorAgent.run(monitorInput);
@@ -30,6 +31,7 @@ async function runNocMultiAgentWorkflow({ payload = {}, eventBus }) {
     diagnosis: payload.diagnosis || "network-latency-anomaly",
     message: "analyze monitor findings",
     previous: monitorResult.finalResponse,
+    __eventBus: eventBus,
   };
   const analyzerResult = await analyzerAgent.run(analyzerInput);
   await eventBus.emit(EVENT_TYPES.TASK_ANALYZED, {
@@ -44,6 +46,7 @@ async function runNocMultiAgentWorkflow({ payload = {}, eventBus }) {
     result: payload.result || "action-queued",
     message: "execute remediation action",
     previous: analyzerResult.finalResponse,
+    __eventBus: eventBus,
   };
   const executorResult = await executorAgent.run(executorInput);
   await eventBus.emit(EVENT_TYPES.ACTION_EXECUTED, {
