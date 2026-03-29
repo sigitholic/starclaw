@@ -7,6 +7,7 @@ const { createEventStore } = require("../events/event.store");
 const { EVENT_TYPES } = require("../events/event.types");
 const { createLogger } = require("../utils/logger");
 const { runNocMultiAgentWorkflow } = require("../../modules/noc/workflows/noc.multi-agent.workflow");
+const { runArchitectureWorkflowUpdate } = require("../../modules/shared/workflows/architecture.workflow-update");
 
 /**
  * Fix BUG-09: Workflow Registry yang dinamis.
@@ -27,6 +28,9 @@ function buildDefaultOrchestrator(customRoutes = {}) {
   // Daftarkan workflow NOC secara dinamis — tidak hardcoded lagi di run()
   workflowRegistry.set("noc-incident-workflow", async ({ payload, eventBus: bus }) =>
     runNocMultiAgentWorkflow({ payload: payload || {}, eventBus: bus })
+  );
+  workflowRegistry.set("architecture-workflow-update", async ({ payload, eventBus: bus }) =>
+    runArchitectureWorkflowUpdate({ payload: payload || {}, eventBus: bus })
   );
 
   // Helper: persist event ke store

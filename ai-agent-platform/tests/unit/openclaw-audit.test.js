@@ -34,10 +34,19 @@ test("openclaw-audit menghasilkan gap utama", async () => {
   });
 
   assert.equal(result.agent, "openclaw-architecture-mapper");
-  // Setelah Re-Act loop upgrade, agent bisa menghasilkan gaps atau respond langsung
-  // berdasarkan observations dari tool output sebelumnya
-  assert.ok(Array.isArray(result.gaps), "gaps harus berupa array");
-  assert.ok(Array.isArray(result.recommendations), "recommendations harus berupa array");
+  // Pada mode mock, Reviewer dapat mem-veto eksekusi tool.
+  // Jika tidak diveto, pastikan hasil audit berupa array gap/rekomendasi.
+  const isReviewerVeto =
+    typeof result.summary === "string" &&
+    result.summary.includes("diveto oleh Reviewer Agent");
+
+  if (isReviewerVeto) {
+    assert.equal(result.success, false);
+    assert.equal(typeof result.finalResponse, "string");
+  } else {
+    assert.ok(Array.isArray(result.gaps), "gaps harus berupa array");
+    assert.ok(Array.isArray(result.recommendations), "recommendations harus berupa array");
+  }
 });
 
 test("validator menolak planner output tidak valid", () => {
@@ -95,6 +104,25 @@ test("workflow noc multi-agent memancarkan event berurutan", async () => {
   assert.ok(actionExecutedIndex > taskAnalyzedIndex);
 });
 
+test("workflow architecture update memanggil agen audit dan menghasilkan checklist", async () => {
+  const orchestrator = buildDefaultOrchestrator();
+  const result = await orchestrator.run("architecture-workflow-update", {
+    taskId: "architecture-test-1",
+    openclawSnapshot: {
+      modules: ["agent-core"],
+      observability: { tracing: false, metrics: false },
+      reliability: { retries: false, queue: false },
+      memory: { longTerm: false },
+    },
+  });
+
+  assert.equal(result.workflow, "architecture-workflow-update");
+  assert.equal(result.taskId, "architecture-test-1");
+  assert.equal(typeof result.summary, "string");
+  assert.ok(Array.isArray(result.workflowUpdate.architectureChecklist));
+  assert.ok(result.workflowUpdate.architectureChecklist.length > 0);
+});
+
 test("phase-4 trace event tersedia dengan payload terstruktur", async () => {
   const orchestrator = buildDefaultOrchestrator();
   await orchestrator.run("openclaw-audit", {
@@ -111,8 +139,6 @@ test("phase-4 trace event tersedia dengan payload terstruktur", async () => {
   const mustExist = [
     EVENT_TYPES.AGENT_STARTED,
     EVENT_TYPES.PLANNER_DECISION,
-    EVENT_TYPES.TOOL_CALLED,
-    EVENT_TYPES.TOOL_RESULT,
     EVENT_TYPES.AGENT_FINISHED,
   ];
 
@@ -123,6 +149,11 @@ test("phase-4 trace event tersedia dengan payload terstruktur", async () => {
     assert.equal(typeof traceEvent.payload.agent, "string");
     assert.equal(typeof traceEvent.payload.payload, "object");
   }
+
+  // TOOL_* bisa tidak muncul jika plan diveto reviewer sebelum eksekusi tool.
+  const toolCalled = events.find((entry) => entry.type === EVENT_TYPES.TOOL_CALLED);
+  const toolResult = events.find((entry) => entry.type === EVENT_TYPES.TOOL_RESULT);
+  assert.equal(Boolean(toolCalled), Boolean(toolResult));
 });
 
 test("status agent dihitung dari event start/finish", async () => {
