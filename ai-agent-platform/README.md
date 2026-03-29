@@ -42,6 +42,23 @@ Script akan mengeksekusi `openclaw-architecture-mapper` terhadap snapshot kompon
 - gap utama
 - rekomendasi improvement Starclaw
 
+## API Monitoring (Phase 5 Backend)
+
+Backend sekarang menggunakan **Express.js** dengan endpoint:
+
+- `GET /health` -> healthcheck service
+- `POST /tasks/run` -> jalankan task (`openclaw-audit` atau `noc-incident-workflow`)
+- `GET /events` -> ambil semua event agent
+- `GET /agents/status` -> status aktif/nonaktif tiap agent berdasarkan lifecycle event
+
+Contoh jalankan task:
+
+```bash
+curl -X POST http://localhost:8080/tasks/run \
+  -H "Content-Type: application/json" \
+  -d '{"task":"openclaw-audit","openclawSnapshot":{"modules":["agent-core"]}}'
+```
+
 ## Prinsip arsitektur
 
 - Core system harus stabil, modular, dan tidak tercampur logic infra.

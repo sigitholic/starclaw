@@ -111,3 +111,36 @@ test("phase-4 trace event tersedia dengan payload terstruktur", async () => {
     assert.equal(typeof traceEvent.payload.payload, "object");
   }
 });
+
+test("status agent dihitung dari event start/finish", async () => {
+  const orchestrator = buildDefaultOrchestrator();
+  await orchestrator.run("noc-incident-workflow", {
+    taskId: "noc-test-status",
+    signal: "packet-loss",
+    severity: "high",
+    action: "reroute-link",
+  });
+
+  const events = orchestrator.getEvents();
+  const activeAgents = new Set();
+  const allAgents = new Set();
+
+  for (const event of events) {
+    const payload = event.payload || {};
+    const agent = payload.agent;
+    if (!agent) {
+      continue;
+    }
+    allAgents.add(agent);
+    if (event.type === EVENT_TYPES.AGENT_STARTED) {
+      activeAgents.add(agent);
+    } else if (event.type === EVENT_TYPES.AGENT_FINISHED) {
+      activeAgents.delete(agent);
+    }
+  }
+
+  assert.ok(allAgents.has("noc-monitor-agent"));
+  assert.ok(allAgents.has("noc-analyzer-agent"));
+  assert.ok(allAgents.has("noc-executor-agent"));
+  assert.equal(activeAgents.size, 0);
+});
