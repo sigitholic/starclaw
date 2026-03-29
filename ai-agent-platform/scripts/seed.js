@@ -5,6 +5,13 @@ const { buildDefaultOrchestrator } = require("../core/orchestrator/orchestrator"
 async function main() {
   const orchestrator = buildDefaultOrchestrator();
 
+  const assistantResult = await orchestrator.run("platform-assistant", {
+    message: "status platform starclaw",
+  });
+  console.log("\n=== HASIL PLATFORM ASSISTANT (CORE FRAMEWORK) ===");
+  console.log("Summary:", assistantResult.summary);
+  console.log("Response:", assistantResult.finalResponse);
+
   const result = await orchestrator.run("openclaw-audit", {
     openclawSnapshot: {
       modules: ["agent-core", "basic-tools", "single-memory"],
@@ -22,7 +29,7 @@ async function main() {
     },
   });
 
-  console.log("\n=== HASIL AUDIT OPENCLAW ===");
+  console.log("\n=== HASIL DEMO MODULE OPENCLAW AUDIT ===");
   console.log("Score:", result.score);
   console.log("Gaps:", result.gaps);
   console.log("Recommendations:", result.recommendations);

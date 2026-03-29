@@ -9,6 +9,17 @@ const { createToolRegistry } = require("../../core/tools");
 const { createShortMemory } = require("../../core/memory/short.memory");
 const { EVENT_TYPES } = require("../../core/events/event.types");
 
+test("platform-assistant berjalan sebagai task default framework", async () => {
+  const orchestrator = buildDefaultOrchestrator();
+  const result = await orchestrator.run("platform-assistant", {
+    message: "status platform starclaw",
+  });
+
+  assert.equal(result.agent, "platform-assistant-agent");
+  assert.equal(typeof result.summary, "string");
+  assert.ok((result.finalResponse || "").includes("Starclaw Platform"));
+});
+
 test("openclaw-audit menghasilkan gap utama", async () => {
   const orchestrator = buildDefaultOrchestrator();
 

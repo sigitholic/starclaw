@@ -74,7 +74,7 @@ app.get("/agents/status", (_req, res) => {
 app.post("/tasks/run", async (req, res) => {
   try {
     const body = req.body || {};
-    const task = body.task || "openclaw-audit";
+    const task = body.task || "platform-assistant";
     const payload = { ...body };
     delete payload.task;
     const result = await orchestrator.run(task, payload);

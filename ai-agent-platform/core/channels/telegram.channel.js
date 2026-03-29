@@ -157,19 +157,30 @@ function createTelegramChannel({
       return;
     }
 
-    const inputText = text.replace(/^\/audit\s*/i, "").trim() || text;
-    const auditResult = await orchestrator.run("openclaw-audit", {
-      message: inputText,
-      openclawSnapshot: buildOpenClawSnapshotFromText(inputText),
-    });
+    if (text.startsWith("/audit")) {
+      const inputText = text.replace(/^\/audit\s*/i, "").trim() || text;
+      const auditResult = await orchestrator.run("openclaw-audit", {
+        message: inputText,
+        openclawSnapshot: buildOpenClawSnapshotFromText(inputText),
+      });
 
+      await tgCall("sendMessage", {
+        chat_id: chatId,
+        text:
+          "Demo audit module selesai.\n" +
+          `Score: ${auditResult.score}\n` +
+          `Summary: ${auditResult.summary}\n` +
+          `Gaps: ${auditResult.gaps.map((g) => `${g.area}`).join(", ") || "-"}`,
+      });
+      return;
+    }
+
+    const assistantResult = await orchestrator.run("platform-assistant", {
+      message: text,
+    });
     await tgCall("sendMessage", {
       chat_id: chatId,
-      text:
-        "Audit OpenClaw selesai.\n" +
-        `Score: ${auditResult.score}\n` +
-        `Summary: ${auditResult.summary}\n` +
-        `Gaps: ${auditResult.gaps.map((g) => `${g.area}`).join(", ") || "-"}`,
+      text: assistantResult.finalResponse || assistantResult.summary,
     });
   }
 
