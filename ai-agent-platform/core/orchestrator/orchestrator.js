@@ -10,6 +10,7 @@ const { runNocMultiAgentWorkflow } = require("../../modules/noc/workflows/noc.mu
 const { createStructuredWorkflow } = require("./structured.workflow");
 const { createDefaultLlmProvider } = require("../llm/llm.provider");
 const { createToolRegistry } = require("../tools");
+const { agentExecutionStore } = require("./agent.execution.store");
 
 /**
  * Fix BUG-09: Workflow Registry yang dinamis.
@@ -124,6 +125,27 @@ function buildDefaultOrchestrator(customRoutes = {}) {
 
     subscribe(eventType, handler) {
       eventBus.on(eventType, handler);
+    },
+
+    /**
+     * State eksekusi terbaru untuk dashboard (per agent + opsional runId).
+     */
+    getAgentExecutionState(agentId, runId) {
+      const rid = agentExecutionStore.resolveRunId(agentId, runId);
+      if (!rid) return null;
+      return agentExecutionStore.get(agentId, rid);
+    },
+
+    getAgentTrace(agentId, runId) {
+      const entry = this.getAgentExecutionState(agentId, runId);
+      return entry && Array.isArray(entry.trace) ? entry.trace : [];
+    },
+
+    /**
+     * Schema tool default (sama dengan agent bawaan platform-assistant).
+     */
+    getDefaultToolSchemas() {
+      return sharedToolsRegistry.getToolSchemas();
     },
   };
 }

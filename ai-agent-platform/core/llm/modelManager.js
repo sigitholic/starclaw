@@ -63,6 +63,40 @@ class ModelManager {
   listSupported() {
     return Array.from(SUPPORTED_MODELS);
   }
+
+  /**
+   * Terapkan pemilihan model dari payload (override eksplisit atau auto-routing).
+   * Kembalikan { modelId, routingMode, previousModel } — panggil restoreModel setelah run.
+   */
+  applyModelRouting(payload = {}) {
+    const previousModel = this.currentModel;
+    const mode = payload.__modelMode === "auto" ? "auto" : "manual";
+    const override = payload.__modelOverride || payload.model;
+    if (override && typeof override === "string") {
+      const n = this.normalizeModelId(override);
+      if (n) {
+        this.currentModel = n;
+        process.env.AGENT_MODEL = n;
+        return { modelId: n, routingMode: "manual", previousModel };
+      }
+    }
+    if (mode === "auto") {
+      const { selectModelForTask } = require("./modelRouter");
+      const picked = selectModelForTask(typeof payload.message === "string" ? payload.message : "");
+      const n = this.normalizeModelId(picked) || previousModel;
+      this.currentModel = n;
+      process.env.AGENT_MODEL = n;
+      return { modelId: n, routingMode: "auto", previousModel };
+    }
+    return { modelId: this.currentModel, routingMode: "manual", previousModel };
+  }
+
+  restoreModel(previousModel) {
+    if (typeof previousModel === "string" && SUPPORTED_MODELS.has(previousModel)) {
+      this.currentModel = previousModel;
+      process.env.AGENT_MODEL = previousModel;
+    }
+  }
 }
 
 const singleton = new ModelManager();

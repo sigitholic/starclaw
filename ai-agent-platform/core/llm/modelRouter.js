@@ -135,6 +135,30 @@ const ROUTING = {
 };
 
 /**
+ * Pilih model berdasarkan task (auto-routing) — dipakai saat payload.__modelMode === "auto".
+ * Heuristik sederhana; bisa diganti dengan policy eksternal.
+ */
+function selectModelForTask(message = "") {
+  const m = String(message || "").toLowerCase();
+  if (
+    /code|refactor|typescript|javascript|python|bug|error stack|stack trace/.test(m) ||
+    /implement|function|class|api|endpoint/.test(m)
+  ) {
+    return "openai:gpt-4o";
+  }
+  if (/(write|tulis|essay|artikel|blog|story|cerita|marketing|copy)/.test(m)) {
+    return "anthropic:claude-3-opus";
+  }
+  if (/(summarize|ringkas|translate|terjemah|multimodal|gambar|image)/.test(m)) {
+    return "google:gemini-1.5-pro";
+  }
+  if (m.length > 2000) {
+    return "google:gemini-1.5-pro";
+  }
+  return "openai:gpt-4.1-mini";
+}
+
+/**
  * Panggilan planner: kembalikan objek JSON (sama seperti output OpenAI plan)
  */
 async function callModelJson({ systemPrompt, userPrompt }) {
@@ -216,4 +240,5 @@ module.exports = {
   formatFinalAnswer,
   normalizeToolResult,
   ROUTING,
+  selectModelForTask,
 };

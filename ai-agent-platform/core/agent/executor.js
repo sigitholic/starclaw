@@ -36,9 +36,29 @@ class Executor {
     }
   }
 
+  /**
+   * Step pseudo-tool untuk jawaban akhir dari planner (type=plan / respond step).
+   */
+  isRespondStep(step) {
+    return step && (step.tool === "__respond__" || step.tool === "__respond");
+  }
+
+  pushDashboardTrace(trace, { stepIndex, tool, input: toolInput, output, plannerStep }) {
+    const entry = {
+      step: stepIndex,
+      tool,
+      input: toolInput != null ? toolInput : {},
+      output: output != null ? output : null,
+      timestamp: new Date().toISOString(),
+    };
+    if (plannerStep) entry.plannerStep = plannerStep;
+    trace.push(entry);
+  }
+
   async execute(plan, input) {
     const eventBus = input && input.__eventBus ? input.__eventBus : null;
     const agentName = input && input.__agentName ? input.__agentName : "unknown-agent";
+    const execCtx = input && input.__agentExecution ? input.__agentExecution : null;
     const outputs = [];
     const trace = Array.isArray(input.__executionTrace) ? [...input.__executionTrace] : [];
     const completedKeys = new Set(
@@ -55,24 +75,84 @@ class Executor {
 
     const startTime = Date.now();
 
+    // Langsung ke tahap respons — tanpa memanggil tool
+    if (plan && plan.plannerDecision === "respond") {
+      const msg = plan.finalResponse != null ? String(plan.finalResponse) : "";
+      const executionTimeMs = Date.now() - startTime;
+      return {
+        score: typeof plan.baseScore === "number" ? plan.baseScore : 0,
+        outputs: [],
+        summary: plan.summary || "Respons langsung",
+        gaps: plan.gaps || [],
+        recommendations: plan.recommendations || [],
+        finalResponse: msg,
+        tokenUsage: tokenStats,
+        executionTimeMs,
+        trace,
+        completedToolKeys: Array.from(completedKeys),
+      };
+    }
+
+    let stepOrdinal = 0;
     for (const step of plan.steps || []) {
+      stepOrdinal++;
       console.log("STEP:", step);
       console.log("MODEL:", modelManager.getModel());
+
+      // Jawaban akhir tanpa tool nyata — dipakai oleh planner (type=plan, action=respond)
+      if (this.isRespondStep(step)) {
+        const msg = String(
+          (step.input && step.input.message != null && step.input.message !== "")
+            ? step.input.message
+            : (plan.finalResponse || "")
+        );
+        const normalized = normalizeToolResult({
+          success: true,
+          data: { message: msg },
+          message: "respond",
+        });
+        outputs.push({
+          step: step.name,
+          tool: "__respond__",
+          status: "ok",
+          output: normalized,
+          attempt: 1,
+        });
+        this.pushDashboardTrace(trace, {
+          stepIndex: stepOrdinal,
+          tool: "__respond__",
+          input: step.input || {},
+          output: normalized,
+          plannerStep: step,
+        });
+        if (execCtx && typeof execCtx.onToolComplete === "function") {
+          execCtx.onToolComplete({ stepOrdinal, tool: "__respond__", normalized });
+        }
+        completedKeys.add(this.toolInvocationKey("__respond__", step.input || {}));
+        continue;
+      }
 
       const invocationKey = this.toolInvocationKey(step.tool, step.input || {});
 
       if (completedKeys.has(invocationKey)) {
         const skipMsg = `Dilewati: tool "${step.tool}" dengan input yang sama sudah dieksekusi sebelumnya.`;
         this.logger.warn("Executor: skip duplicate tool invocation", { tool: step.tool, key: invocationKey });
+        const skipOut = { success: false, data: null, message: skipMsg };
         outputs.push({
           step: step.name,
           tool: step.tool,
           status: "skipped",
           reason: "DUPLICATE_TOOL",
-          output: { success: false, data: null, message: skipMsg },
+          output: skipOut,
           attempt: 0,
         });
-        trace.push({ step, result: { success: false, data: null, message: skipMsg } });
+        this.pushDashboardTrace(trace, {
+          stepIndex: stepOrdinal,
+          tool: step.tool,
+          input: step.input || {},
+          output: skipOut,
+          plannerStep: step,
+        });
         continue;
       }
 
@@ -103,7 +183,16 @@ class Executor {
           error: errOut.message,
           output: errOut,
         });
-        trace.push({ step, result: errOut });
+        this.pushDashboardTrace(trace, {
+          stepIndex: stepOrdinal,
+          tool: step.tool,
+          input: step.input || {},
+          output: errOut,
+          plannerStep: step,
+        });
+        if (execCtx && typeof execCtx.onToolComplete === "function") {
+          execCtx.onToolComplete({ stepOrdinal, tool: step.tool, normalized: errOut });
+        }
         continue;
       }
 
@@ -157,7 +246,16 @@ class Executor {
               attempt,
             });
             completedKeys.add(invocationKey);
-            trace.push({ step, result: normalized });
+            this.pushDashboardTrace(trace, {
+              stepIndex: stepOrdinal,
+              tool: step.tool,
+              input: step.input || {},
+              output: normalized,
+              plannerStep: step,
+            });
+            if (execCtx && typeof execCtx.onToolComplete === "function") {
+              execCtx.onToolComplete({ stepOrdinal, tool: step.tool, normalized });
+            }
             if (eventBus) {
               await eventBus.emit(EVENT_TYPES.TOOL_RESULT, {
                 timestamp: new Date().toISOString(),
@@ -187,7 +285,16 @@ class Executor {
               output: normalized,
               reason: normalized.message || "tool reported failure",
             });
-            trace.push({ step, result: normalized });
+            this.pushDashboardTrace(trace, {
+              stepIndex: stepOrdinal,
+              tool: step.tool,
+              input: step.input || {},
+              output: normalized,
+              plannerStep: step,
+            });
+            if (execCtx && typeof execCtx.onToolComplete === "function") {
+              execCtx.onToolComplete({ stepOrdinal, tool: step.tool, normalized });
+            }
             if (eventBus) {
               await eventBus.emit(EVENT_TYPES.TOOL_RESULT, {
                 timestamp: new Date().toISOString(),
@@ -219,7 +326,16 @@ class Executor {
               reason: error.message,
               output: errOut,
             });
-            trace.push({ step, result: errOut });
+            this.pushDashboardTrace(trace, {
+              stepIndex: stepOrdinal,
+              tool: step.tool,
+              input: step.input || {},
+              output: errOut,
+              plannerStep: step,
+            });
+            if (execCtx && typeof execCtx.onToolComplete === "function") {
+              execCtx.onToolComplete({ stepOrdinal, tool: step.tool, normalized: errOut });
+            }
             if (eventBus) {
               await eventBus.emit(EVENT_TYPES.TOOL_RESULT, {
                 timestamp: new Date().toISOString(),

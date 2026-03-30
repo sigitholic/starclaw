@@ -1,6 +1,7 @@
 "use strict";
 
 const { agentConfig } = require("../../config/agent.config");
+const { agentExecutionStore } = require("./agent.execution.store");
 
 /**
  * Workflow Engine dengan Re-Act Loop + Sliding Window Observations.
@@ -19,7 +20,7 @@ function createWorkflowEngine() {
         throw new Error("Agent tidak valid untuk workflow engine");
       }
 
-      const maxIterations = maxIterationsOverride || agentConfig.maxExecutionSteps || agentConfig.maxIterations || 5;
+      const maxIterations = maxIterationsOverride || agentConfig.maxIterations || agentConfig.maxExecutionSteps || 5;
       const maxObservations = agentConfig.maxObservations || 6;
       const iterationDelay = agentConfig.iterationDelayMs || 300;
 
@@ -49,6 +50,18 @@ function createWorkflowEngine() {
         const startMs = Date.now();
         lastResult = await agent.run(currentPayload);
         const iterationMs = Date.now() - startMs;
+
+        const rid = lastResult && lastResult.__runId;
+        if (rid && agent && agent.name) {
+          const prev = agentExecutionStore.get(agent.name, rid);
+          agentExecutionStore.patch(agent.name, rid, {
+            executionState: {
+              ...(prev && prev.executionState ? prev.executionState : {}),
+              workflowIteration: iteration,
+              maxWorkflowIterations: maxIterations,
+            },
+          });
+        }
 
         // Estimasi token yang dipakai di iterasi ini
         if (agentConfig.trackTokenUsage && lastResult && lastResult.tokenUsage) {
@@ -142,6 +155,16 @@ function createWorkflowEngine() {
         lastResult.__iterations = iteration;
         lastResult.__totalTokensEst = totalTokensEstimated;
         lastResult.__executionTrace = executionTrace;
+        const rid = lastResult.__runId;
+        if (rid && agent && agent.name) {
+          const snap = agentExecutionStore.get(agent.name, rid);
+          if (snap) {
+            lastResult.executionState = snap.executionState;
+            lastResult.stepHistory = snap.stepHistory;
+            lastResult.lastToolResult = snap.lastToolResult;
+            lastResult.trace = snap.trace;
+          }
+        }
       }
 
       return lastResult;

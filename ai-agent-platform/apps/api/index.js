@@ -92,6 +92,72 @@ app.get("/agents/status", (_req, res) => {
   });
 });
 
+app.get("/agent/:id/state", (req, res) => {
+  try {
+    const agentId = decodeURIComponent(req.params.id || "");
+    const runId = req.query.runId || req.query.run;
+    const entry = orchestrator.getAgentExecutionState(agentId, runId);
+    if (!entry) {
+      return res.status(404).json({
+        ok: false,
+        error: "Tidak ada state untuk agent/run ini. Jalankan task dulu atau kirim query runId.",
+      });
+    }
+    res.status(200).json({
+      ok: true,
+      agentId,
+      runId: entry.runId,
+      executionState: entry.executionState,
+      stepHistory: entry.stepHistory,
+      lastToolResult: entry.lastToolResult,
+      updatedAt: entry.updatedAt,
+    });
+  } catch (error) {
+    logger.error("GET /agent/:id/state", { message: error.message });
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+app.get("/agent/:id/trace", (req, res) => {
+  try {
+    const agentId = decodeURIComponent(req.params.id || "");
+    const runId = req.query.runId || req.query.run;
+    const stateEntry = orchestrator.getAgentExecutionState(agentId, runId);
+    if (!stateEntry) {
+      return res.status(404).json({
+        ok: false,
+        error: "Tidak ada trace/state. Jalankan task atau set runId.",
+      });
+    }
+    const trace = orchestrator.getAgentTrace(agentId, runId);
+    res.status(200).json({
+      ok: true,
+      agentId,
+      runId: stateEntry.runId,
+      trace: trace || [],
+    });
+  } catch (error) {
+    logger.error("GET /agent/:id/trace", { message: error.message });
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+app.get("/agent/:id/tools", (req, res) => {
+  try {
+    const agentId = decodeURIComponent(req.params.id || "");
+    const tools = orchestrator.getDefaultToolSchemas();
+    res.status(200).json({
+      ok: true,
+      agentId,
+      total: tools.length,
+      tools,
+    });
+  } catch (error) {
+    logger.error("GET /agent/:id/tools", { message: error.message });
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
 app.post("/tasks/run", async (req, res) => {
   try {
     const body = req.body || {};
@@ -99,15 +165,17 @@ app.post("/tasks/run", async (req, res) => {
     const payload = { ...body };
     delete payload.task;
     const result = await orchestrator.run(task, payload);
+    const runId = result && result.__runId ? result.__runId : null;
     sendWsMessage({
       type: "task_run_result",
       timestamp: new Date().toISOString(),
       payload: {
         task,
         resultSummary: result.summary || null,
+        runId,
       },
     });
-    res.status(200).json({ ok: true, result });
+    res.status(200).json({ ok: true, runId, result });
   } catch (error) {
     logger.error("Task execution error", { message: error.message });
     res.status(500).json({ ok: false, error: error.message });
