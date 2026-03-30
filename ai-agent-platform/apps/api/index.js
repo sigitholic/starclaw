@@ -1,5 +1,7 @@
 "use strict";
 
+require("../../config/load-env").loadEnv();
+
 const express = require("express");
 const http = require("http");
 const { WebSocketServer } = require("ws");

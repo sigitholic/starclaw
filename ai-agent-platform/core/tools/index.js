@@ -146,6 +146,10 @@ function createToolRegistry(customTools = []) {
 
     register(tool) {
       validateToolContract(tool);
+      if (tools.has(tool.name)) {
+        console.warn(`[ToolRegistry] Tool '${tool.name}' sudah terdaftar — lewati duplikat`);
+        return;
+      }
       tools.set(tool.name, tool);
       console.log(`[ToolRegistry] Tool '${tool.name}' didaftarkan secara dinamis`);
     },

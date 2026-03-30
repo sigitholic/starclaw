@@ -1,5 +1,7 @@
 "use strict";
 
+require("../config/load-env").loadEnv();
+
 const { buildDefaultOrchestrator } = require("../core/orchestrator/orchestrator");
 const { loadEnvConfig } = require("../config/env.config");
 const { createLogger } = require("../core/utils/logger");

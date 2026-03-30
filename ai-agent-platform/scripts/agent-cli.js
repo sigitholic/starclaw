@@ -8,6 +8,8 @@ try {
   process.chdir(path.resolve(__dirname, ".."));
 } catch (_e) {}
 
+require("../config/load-env").loadEnv();
+
 const { modelManager } = require("../core/llm/modelManager");
 
 const argv = process.argv.slice(2);
