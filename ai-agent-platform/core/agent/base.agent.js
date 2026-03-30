@@ -2,6 +2,7 @@
 
 const crypto = require("crypto");
 const { agentConfig } = require("../../config/agent.config");
+const { applyPlannerSuccessRespondPolicy } = require("../utils/validator");
 const { EVENT_TYPES } = require("../events/event.types");
 const { modelManager } = require("../llm/modelManager");
 const { agentExecutionStore } = require("../orchestrator/agent.execution.store");
@@ -126,13 +127,15 @@ class BaseAgent {
       });
     }
 
-    const plan = await this.planner.createPlan({
+    let plan = await this.planner.createPlan({
       ...cleanInput,
       __stepCount: stepCount,
       context: plannerContext,
       __agentName: this.name,
       __eventBus: eventBus,
     });
+
+    plan = applyPlannerSuccessRespondPolicy(plan, cleanInput.__lastToolResult);
 
     if (this.reviewer && plan.plannerDecision === "tool") {
       this.logger.info("Meminta Reviewer Agent untuk mengevaluasi plan", { stepCount: plan.steps ? plan.steps.length : 0 });

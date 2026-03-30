@@ -3,7 +3,20 @@
 const { modelManager } = require("./modelManager");
 
 /**
- * Format jawaban akhir dari hasil tool terstruktur { success, data, message }
+ * Ambil payload tampilan dari hasil tool (berbagai bentuk kontrak plugin).
+ */
+function extractSuccessPayload(result) {
+  if (!result || typeof result !== "object") return undefined;
+  if (result.data !== undefined) return result.data;
+  if (result.verdict !== undefined) return result.verdict;
+  if (result.message != null && String(result.message).trim() !== "") return result.message;
+  const { success: _s, error: _e, ...rest } = result;
+  if (Object.keys(rest).length > 0) return rest;
+  return result;
+}
+
+/**
+ * Format jawaban akhir dari hasil tool terstruktur { success, data, verdict, message, ... }
  */
 function formatFinalAnswer(result) {
   if (!result || typeof result !== "object") {
@@ -13,7 +26,16 @@ function formatFinalAnswer(result) {
     const msg = result.message != null ? String(result.message) : "unknown error";
     return "❌ Failed: " + msg;
   }
-  return "✅ Result:\n" + JSON.stringify(result.data, null, 2);
+  const payload = extractSuccessPayload(result);
+  let body;
+  if (payload === undefined) {
+    body = JSON.stringify(result, null, 2);
+  } else if (payload === null || typeof payload === "string" || typeof payload === "number" || typeof payload === "boolean") {
+    body = String(payload);
+  } else {
+    body = JSON.stringify(payload, null, 2);
+  }
+  return "✅ Result:\n" + body;
 }
 
 /**
@@ -231,6 +253,7 @@ async function callModel(prompt) {
 }
 
 module.exports = {
+  extractSuccessPayload,
   callModel,
   callModelJson,
   /** @deprecated gunakan callModelJson */

@@ -104,6 +104,24 @@ function normalizeStep(step, index) {
 //   - Step tanpa action
 // ===================================================================
 
+function applyPlannerSuccessRespondPolicy(plan, lastToolResult) {
+  if (!plan || !isPlainObject(plan)) return plan;
+  if (plan.plannerDecision !== "tool" || !Array.isArray(plan.steps)) return plan;
+  const last = lastToolResult && typeof lastToolResult === "object" ? lastToolResult : null;
+  if (!last || last.success !== true) return plan;
+
+  // eslint-disable-next-line global-require
+  const { formatFinalAnswer } = require("../llm/modelRouter");
+  const msg = formatFinalAnswer(last);
+  return {
+    ...plan,
+    steps: [],
+    summary: plan.summary || "Tool selesai — jawaban final",
+    finalResponse: msg,
+    plannerDecision: "respond",
+  };
+}
+
 function normalizePlannerDecision(rawDecision) {
   if (!isPlainObject(rawDecision)) {
     throw new Error("Planner output harus object JSON, bukan " + typeof rawDecision);
@@ -272,4 +290,5 @@ module.exports = {
   validateStep,
   normalizeStep,
   normalizePlannerDecision,
+  applyPlannerSuccessRespondPolicy,
 };

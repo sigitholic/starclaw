@@ -47,6 +47,18 @@ function createWorkflowEngine() {
         }
 
         // === THINK & ACT ===
+        const lastOkOut =
+          Array.isArray(lastResult?.outputs) && lastResult.outputs.length > 0
+            ? [...lastResult.outputs].reverse().find(
+              o => o.status === "ok" && o.output && o.output.success === true
+            )
+            : null;
+        if (lastOkOut && lastOkOut.output) {
+          currentPayload.__lastToolResult = lastOkOut.output;
+        } else {
+          delete currentPayload.__lastToolResult;
+        }
+
         const startMs = Date.now();
         lastResult = await agent.run(currentPayload);
         const iterationMs = Date.now() - startMs;
