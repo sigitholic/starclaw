@@ -5,7 +5,7 @@ const { EVENT_TYPES } = require("../events/event.types");
 const { selectRelevantTools, extractPreviousTools, mergePlannerSchemas } = require("./tool.selector");
 const {
   matchIntentToSkill,
-  planUserIntent,
+  plan,
   coerceForbiddenToolsToSkill,
 } = require("./intent.skill.match");
 const { modelManager } = require("../llm/modelManager");
@@ -69,7 +69,7 @@ class Planner {
 
     // Intent: chat vs skill — tanpa observasi, jangan paksa semua input ke skill
     if (canShortCircuitIntent && this.skillRegistry && !needsStructuredPlannerMessage(message)) {
-      const intent = planUserIntent(message);
+      const intent = plan(message);
       if (intent.type === "chat") {
         const chatFn = this.llmProvider && typeof this.llmProvider.chat === "function"
           ? this.llmProvider.chat.bind(this.llmProvider)
