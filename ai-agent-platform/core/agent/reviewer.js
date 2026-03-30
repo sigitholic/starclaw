@@ -1,6 +1,7 @@
 "use strict";
 
 const SAFE_SKILL_SHELL_COMMANDS = ["ping"];
+const SAFE_SERVER_RESOURCE_CMD_PREFIX = "top -b -n 1";
 
 /**
  * Evaluasi eksekusi shell-tool: skill dengan perintah aman → izinkan;
@@ -20,6 +21,13 @@ function reviewShellToolExecution(input) {
   if (input.meta.skillName === "run-system-command") {
     const cmd = String(input.command || "");
     if (SAFE_SKILL_SHELL_COMMANDS.some((token) => cmd.includes(token))) {
+      return { allow: true };
+    }
+  }
+
+  if (input.meta.skillName === "check-server-resource") {
+    const cmd = String(input.command || "");
+    if (cmd.startsWith(SAFE_SERVER_RESOURCE_CMD_PREFIX) || cmd.includes("| head -n 5")) {
       return { allow: true };
     }
   }
@@ -48,6 +56,16 @@ function buildReviewerInputForSkillStep(step) {
   };
 }
 
+function buildReviewerInputForServerResourceSkillStep() {
+  return {
+    command: `${SAFE_SERVER_RESOURCE_CMD_PREFIX} | head -n 5`,
+    meta: {
+      source: "skill",
+      skillName: "check-server-resource",
+    },
+  };
+}
+
 function buildReviewerInputForDirectShellStep(step) {
   const o = step && step.input && typeof step.input === "object" ? step.input : {};
   return {
@@ -63,7 +81,7 @@ function planTouchesShellTool(plan) {
   const steps = Array.isArray(plan && plan.steps) ? plan.steps : [];
   return steps.some((s) => {
     if (!s) return false;
-    if (s.isSkill && s.tool === "run-system-command") return true;
+    if (s.isSkill && (s.tool === "run-system-command" || s.tool === "check-server-resource")) return true;
     if (!s.isSkill && s.tool === "shell-tool") return true;
     return false;
   });
@@ -133,6 +151,23 @@ class Reviewer {
         continue;
       }
 
+      if (step.isSkill && step.tool === "check-server-resource") {
+        const shellInput = buildReviewerInputForServerResourceSkillStep();
+        const local = reviewShellToolExecution(shellInput);
+        if (local && local.allow === false) {
+          return {
+            approved: false,
+            reason: local.reason || "Direct command execution not allowed",
+            suggestedChanges: [],
+          };
+        }
+        if (local && local.allow === true) {
+          continue;
+        }
+        needsLlm = true;
+        continue;
+      }
+
       if (!step.isSkill && step.tool === "shell-tool") {
         const shellInput = buildReviewerInputForDirectShellStep(step);
         const local = reviewShellToolExecution(shellInput);
@@ -152,7 +187,7 @@ class Reviewer {
 
     const nonShellSteps = steps.filter((s) => {
       if (!s) return false;
-      if (s.isSkill && s.tool === "run-system-command") return false;
+      if (s.isSkill && (s.tool === "run-system-command" || s.tool === "check-server-resource")) return false;
       if (!s.isSkill && s.tool === "shell-tool") return false;
       return true;
     });

@@ -21,7 +21,11 @@ const { agentConfig } = require("../../config/agent.config");
 const SKILL_KEYWORDS = [
   {
     skills: ["check-system-health"],
-    pattern: /health|cek\s+status|cek\s+sistem|status\s+(?:sistem|platform|kesehatan|server)|status platform|diagnosis|doctor/i,
+    pattern: /health|cek\s+status|cek\s+sistem|status\s+(?:sistem|platform|kesehatan)|status platform|diagnosis|doctor/i,
+  },
+  {
+    skills: ["check-server-resource"],
+    pattern: /cek\s+kondisi\s+server|kondisi\s+server|resource\s+server|cpu.*server|memori.*server/i,
   },
   { skills: ["run-system-command"], pattern: /shell|bash|command|terminal|exec|perintah|jalankan|ping\b/i },
   { skills: ["manage-files"], pattern: /file|folder|direktori|baca|tulis|hapus|buat file/i },

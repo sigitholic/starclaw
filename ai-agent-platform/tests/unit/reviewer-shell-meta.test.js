@@ -15,6 +15,14 @@ test("reviewShellToolExecution: skill + ping → allow", () => {
   assert.equal(r.allow, true);
 });
 
+test("reviewShellToolExecution: skill check-server-resource + top → allow", () => {
+  const r = reviewShellToolExecution({
+    command: "top -b -n 1 | head -n 5",
+    meta: { source: "skill", skillName: "check-server-resource" },
+  });
+  assert.equal(r.allow, true);
+});
+
 test("reviewShellToolExecution: tanpa meta → blokir", () => {
   const r = reviewShellToolExecution({
     command: "ping 127.0.0.1",
@@ -35,6 +43,15 @@ test("planTouchesShellTool: mendeteksi skill run-system-command", () => {
   assert.equal(
     planTouchesShellTool({
       steps: [{ tool: "run-system-command", isSkill: true, input: {} }],
+    }),
+    true
+  );
+});
+
+test("planTouchesShellTool: mendeteksi skill check-server-resource", () => {
+  assert.equal(
+    planTouchesShellTool({
+      steps: [{ tool: "check-server-resource", isSkill: true, input: {} }],
     }),
     true
   );

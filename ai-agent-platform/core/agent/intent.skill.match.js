@@ -62,7 +62,9 @@ function coerceForbiddenToolsToSkill(rawPlan, userMessage, skillRegistry) {
       input: intent.input,
       summary: intent.skill === "run-system-command"
         ? `Ping ${intent.input.target || "host"} (skill-first, mengganti ${FORBIDDEN_DIRECT_TOOLS.join("/")})`
-        : "Memeriksa kesehatan sistem (skill-first)",
+        : intent.skill === "check-server-resource"
+          ? "Memeriksa resource server (skill-first)"
+          : "Memeriksa kesehatan sistem (skill-first)",
     };
   }
   if (skillRegistry.has("check-system-health")) {
@@ -83,6 +85,28 @@ function detectSkill(text) {
     return {
       skill: "run-system-command",
       input: { target: extractIP(text) || "127.0.0.1" },
+    };
+  }
+
+  if (
+    (t.includes("cek") || t.includes("crk")) &&
+    t.includes("kondisi") &&
+    (t.includes("server") || t.includes("srv"))
+  ) {
+    return {
+      skill: "check-server-resource",
+      input: {},
+    };
+  }
+
+  if (
+    t.includes("status") &&
+    t.includes("platform") &&
+    (t.includes("cek") || t.includes("crk") || t.includes("periksa"))
+  ) {
+    return {
+      skill: "check-system-health",
+      input: {},
     };
   }
 
@@ -118,10 +142,14 @@ function matchIntentToSkill(message, skillRegistry) {
     return null;
   }
 
-  const summary =
-    intent.skill === "run-system-command"
-      ? `Ping ${intent.input.target || "host"} melalui skill run-system-command`
-      : "Memeriksa kesehatan sistem melalui skill check-system-health";
+  let summary;
+  if (intent.skill === "run-system-command") {
+    summary = `Ping ${intent.input.target || "host"} melalui skill run-system-command`;
+  } else if (intent.skill === "check-server-resource") {
+    summary = "Memeriksa resource server melalui skill check-server-resource";
+  } else {
+    summary = "Memeriksa kesehatan sistem melalui skill check-system-health";
+  }
 
   return {
     action: "skill",
