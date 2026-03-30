@@ -50,8 +50,8 @@ class SkillRegistry {
   }
 }
 
-/** skills/ di root workspace (sibling ai-agent-platform/) */
-const DEFAULT_SKILLS_DIR = path.join(__dirname, "..", "..", "..", "skills");
+/** skills/ di dalam paket ai-agent-platform/ */
+const DEFAULT_SKILLS_DIR = path.join(__dirname, "..", "..", "skills");
 
 /**
  * Muat skill runtime dari folder /skills:
@@ -76,7 +76,10 @@ function loadSkillsFromDir(dir = DEFAULT_SKILLS_DIR, registry = new SkillRegistr
 }
 
 function createDefaultSkillRegistry() {
-  return loadSkillsFromDir();
+  const registry = loadSkillsFromDir();
+  const skills = registry.list();
+  console.log("Skills loaded:", skills);
+  return registry;
 }
 
 /** Satu registry untuk app — skillRegistry.register(skill) menambah/menimpa skill di instance ini */
