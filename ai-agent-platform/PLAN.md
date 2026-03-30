@@ -5,7 +5,13 @@
 
 ---
 
-## Status Terkini: v0.4.0 (30 Maret 2026)
+## Status Terkini: v0.4.1 (30 Maret 2026)
+
+### Changelog v0.4.1
+- ✅ **User output pipeline (Telegram & agent):** tidak ada JSON mentah ke user — `core/agent/formatter.js` memakai `formatToolResult` dari `response.formatter.js` (bukan `JSON.stringify` untuk hasil sukses).
+- ✅ **BaseAgent:** `lastToolName` di execution state agar format per-tool benar (mis. `doctor-tool` → laporan kesehatan terstruktur).
+- ✅ **Telegram channel:** `sendMessageToUser`, `editUserMessageText`, `sendMarkdownToUser` — objek & string JSON dipaksa lewat formatter; log `FINAL USER MESSAGE` sebelum kirim.
+- ✅ **Referensi commit:** lihat branch/PR terkait *user output formatting* di GitHub (history `cursor/user-output-formatting-*`).
 
 ### Changelog v0.4.0
 - ✅ G01: Short memory persistence (`session.store.js`) — agent ingat percakapan setelah restart
@@ -25,6 +31,8 @@
 - [x] Executor (eksekusi tool dengan retry + timeout + exponential backoff)
 - [x] Reviewer / Security Gate (LLM evaluasi plan sebelum eksekusi)
 - [x] BaseAgent run loop (orchestrate planner → reviewer → executor → memory)
+- [x] **User-facing formatter:** `formatResponse()` di `core/agent/formatter.js` → `formatToolResult` / `response.formatter.js` (bukan JSON mentah)
+- [x] **Tool context ke formatter:** `lastToolName` + trace untuk format spesifik per tool (`doctor-tool`, dll.)
 - [x] WorkflowEngine dengan sliding window observation buffer (max 6)
 - [x] Orchestrator dengan dynamic workflow registry
 - [x] Task Router (map task name → agent instance)
@@ -104,6 +112,7 @@
 - [x] Progress update real-time (edit message saat tool dipanggil)
 - [x] Intercept pengingat tanpa LLM (parse waktu natural)
 - [x] Auto-fallback Markdown → plain text (fix "can't parse entities")
+- [x] **Output aman ke user:** `sendMessageToUser` / `editUserMessageText` / `sendMarkdownToUser` — semua teks ke user diformat (objek & string JSON tidak bocor mentah)
 - [x] CLI Channel
 - [x] Local Channel (standby mode)
 
@@ -153,6 +162,7 @@
 | G02 | **Streaming response** | ❌ Belum | UX lambat task panjang — butuh SSE/stream OpenAI |
 | G03 | **Self-healing proaktif** | ✅ SELESAI 30/3/26 | `channel-runner.js` — doctor-tool startup + auto-load plugins |
 | G04 | **Auto plugin discovery** | ✅ SELESAI 30/3/26 | `plugin.watcher.js` + scan folder saat startup |
+| G13 | **User output formatting (Telegram)** | ✅ SELESAI 30/3/26 | Pipeline wajib: tool → `formatResponse`/`formatToolResult` → channel → user; lihat `.agent/workflows/format-user-output.md` |
 
 ### P2 — Penting untuk Skala
 
@@ -181,20 +191,25 @@
 **Tujuan:** Agent tidak kehilangan konteks setelah restart dan bisa self-heal.
 
 ```
-[ ] G01 — Short memory persistence
+[x] G01 — Short memory persistence (SELESAI — lihat checklist Persistence)
     - Simpan state short memory ke data/memory/sessions/<agent>.json
     - Load ulang saat startup jika ada file
     - Strategi: hanya simpan 10 interaksi terakhir per agent
 
-[ ] G03 — Self-healing proaktif saat startup
+[x] G03 — Self-healing proaktif saat startup (SELESAI — channel-runner)
     - channel-runner.js: jalankan doctor-tool diagnose saat startup
     - Jika ada module broken → auto repair
     - Notifikasi ke Telegram jika ada critical issue
 
-[ ] G04 — Auto plugin discovery
+[x] G04 — Auto plugin discovery (SELESAI — plugin.watcher + startup scan)
     - Watch folder plugins/ dengan fs.watch
     - Auto load plugin baru yang ditambahkan
     - Reload plugin yang file-nya berubah (development mode)
+
+[x] G13 — Format output ke user (Telegram) — tidak ada raw JSON
+    - Agent: formatResponse → formatToolResult; lastToolName untuk per-tool
+    - Telegram: sendMessageToUser / editUserMessageText / sendMarkdownToUser
+    - Verifikasi: log "FINAL USER MESSAGE" + workflow format-user-output.md
 ```
 
 ### Phase 2 — Akurasi Token & Kualitas (1-2 sprint)
@@ -290,8 +305,9 @@
 | **Short memory token-aware** | ✅ | ✅ Basic | **Keunggulan Starclaw** |
 | **Sliding observation window** | ✅ | ❓ | **Keunggulan Starclaw** |
 | **Auto summarization** | ✅ Rule+LLM | ✅ LLM only | **Keunggulan Starclaw** |
+| **User-facing output (no raw JSON)** | ✅ v0.4.1 | ❓ | Formatter + channel guard |
 | Streaming response | ❌ | ✅ | Gap Starclaw |
-| Conversation persist | ❌ | ✅ | Gap Starclaw |
+| Conversation persist | ✅ (G01) | ✅ | Short memory persist per agent |
 | Computer-use (klik UI desktop) | ❌ | ✅ (Windows) | By design: Starclaw = server |
 | Infrastructure (Redis/PG) | ❌ Stub | ✅ | Gap Starclaw |
 | Language | Node.js | TypeScript | Pilihan desain |
@@ -344,4 +360,4 @@ npm run start:all
 ---
 
 *Dokumen ini diperbarui: 30 Maret 2026*
-*Versi platform: 0.3.0*
+*Versi platform: 0.4.1*

@@ -45,3 +45,8 @@ curl -X POST http://localhost:3000/api/task \
   -H "Content-Type: application/json" \
   -d '{"taskName": "noc-query", "payload": {"message": "Periksa status server"}}'
 ```
+
+## Channel Telegram & format output
+
+- Set `AGENT_CHANNEL=telegram` dan token di `.env`, lalu jalankan `npm run channel:run` (atau via `start:all` sesuai setup).
+- Respons ke user **tidak** boleh JSON mentah: pipeline dokumentasi ada di `.agent/workflows/format-user-output.md` dan `PLAN.md` (G13, v0.4.1).

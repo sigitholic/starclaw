@@ -15,6 +15,12 @@ Perhatikan log dengan prefix:
 - `[Executor]` - eksekusi tool dan hasilnya
 - `[BrowserTool]` - aktivitas browser Playwright
 - `[Orchestrator]` - routing task
+- **`FINAL USER MESSAGE:`** — teks final yang dikirim ke Telegram (setelah formatter); berguna jika user melihat JSON mentah atau format salah
+
+### 1b. Output ke user (Telegram)
+
+- Pipeline wajib: tool → `formatResponse` / `formatToolResult` → channel → user (lihat `.agent/workflows/format-user-output.md`).
+- Jika ada regresi (JSON mentah di chat), telusuri apakah ada `sendMessage` baru yang melewati `sendMessageToUser` / `sendMarkdownToUser` di `telegram.channel.js`.
 
 ### 2. Cek Event Store via API
 
