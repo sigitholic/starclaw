@@ -1,6 +1,6 @@
 "use strict";
 
-const { normalizeToolResult } = require("../ai-agent-platform/core/llm/modelRouter");
+const { normalizeToolResult } = require("../core/llm/modelRouter");
 
 /**
  * Kontrak keluaran skill ke user: ringkasan manusiawi + detail terstruktur (bukan JSON mentah).

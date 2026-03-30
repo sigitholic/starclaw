@@ -3,7 +3,7 @@
 const path = require("path");
 const { modelManager } = require("./modelManager");
 
-const skillResultHelperPath = path.join(__dirname, "..", "..", "..", "skills", "skill-result.helper.js");
+const skillResultHelperPath = path.join(__dirname, "..", "..", "skills", "skill-result.helper.js");
 
 /**
  * Ambil payload tampilan dari hasil tool (berbagai bentuk kontrak plugin).

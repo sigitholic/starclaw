@@ -20,7 +20,7 @@ const path = require("path");
  *   - Daftar skill yang dikonfigurasi per-agent
  */
 
-const SKILLS_DIR = path.resolve(process.cwd(), "skills");
+const SKILLS_DIR = path.join(__dirname, "..", "..", "skills");
 const SKILL_CACHE = new Map(); // path → content
 
 function loadSkillFile(filePath) {
