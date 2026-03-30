@@ -34,6 +34,7 @@ const TOOL_KEYWORDS = [
   { tools: ["docker-tool"], pattern: /docker|container|image|compose|k8s|kubernetes/i },
   { tools: ["cron-tool"], pattern: /jadwal|schedule|cron|interval|setiap|rutin|reminder|pengingat|otomatis/i },
   { tools: ["plugin-tool"], pattern: /plugin|install plugin|load plugin|clawhub|extension/i },
+  { tools: ["tool-builder"], pattern: /buat tool|tool builder|buat plugin tool|generate tool|self.?tool|dynamic tool/i },
   { tools: ["plugin-config-tool"], pattern: /konfigurasi plugin|setting plugin|set api key|atur plugin|plugin config/i },
   { tools: ["sub-agent-tool"], pattern: /sub.?agent|spawn|delegasi|paralel|anak agent|child agent/i },
   { tools: ["database-tool"], pattern: /database|sqlite|query|insert|select|tabel|simpan data|db/i },
