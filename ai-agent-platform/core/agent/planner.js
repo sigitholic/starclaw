@@ -3,7 +3,11 @@
 const { normalizePlannerDecision } = require("../utils/validator");
 const { EVENT_TYPES } = require("../events/event.types");
 const { selectRelevantTools, extractPreviousTools, mergePlannerSchemas } = require("./tool.selector");
-const { matchIntentToSkill } = require("./intent.skill.match");
+const {
+  matchIntentToSkill,
+  fallbackToSkill,
+  coerceForbiddenToolsToSkill,
+} = require("./intent.skill.match");
 const { modelManager } = require("../llm/modelManager");
 
 class Planner {
@@ -25,7 +29,9 @@ class Planner {
       this.skillRegistry && typeof this.skillRegistry.getSkillSchemas === "function"
         ? this.skillRegistry.getSkillSchemas()
         : [];
-    const mergedSchemas = mergePlannerSchemas(allToolSchemas, skillSchemas);
+    const mergedSchemas = mergePlannerSchemas(allToolSchemas, skillSchemas).filter(
+      s => s && s.name !== "shell-tool",
+    );
 
     // Smart Tool Selection — kirim hanya tool/skill relevan ke LLM
     // Hemat ~2000-3000 token per call untuk task yang tidak butuh semua tool
@@ -52,36 +58,53 @@ class Planner {
 
     const canShortCircuitIntent =
       !input.__isRegenerate && (!input.observations || input.observations.length === 0);
-    const intentSkill = canShortCircuitIntent ? matchIntentToSkill(message, this.skillRegistry) : null;
-    if (intentSkill) {
-      const normalizedPlan = normalizePlannerDecision(intentSkill);
-      this.logger.info("Planner decision (intent→skill)", {
-        decision: normalizedPlan.plannerDecision,
-        skill: normalizedPlan.steps[0]?.tool,
-      });
-      if (eventBus) {
-        await eventBus.emit(EVENT_TYPES.PLANNER_DECISION, {
-          timestamp: new Date().toISOString(),
-          agent: agentName,
-          payload: {
-            decision: normalizedPlan.plannerDecision,
-            stepCount: normalizedPlan.steps.length,
-            summary: normalizedPlan.summary,
-            toolsInPrompt: selectedSchemas.length,
-            source: "intent-skill-match",
-          },
+
+    // Skill-first deterministik: tanpa observasi, selalu skill (bukan tool langsung)
+    if (canShortCircuitIntent && this.skillRegistry) {
+      const intentSkill =
+        matchIntentToSkill(message, this.skillRegistry) ||
+        (typeof this.skillRegistry.has === "function" && this.skillRegistry.has("check-system-health")
+          ? fallbackToSkill()
+          : null);
+      if (intentSkill) {
+        const normalizedPlan = normalizePlannerDecision(intentSkill);
+        // eslint-disable-next-line no-console
+        console.log("PLANNER RESULT:", normalizedPlan);
+        this.logger.info("Planner decision (skill-first deterministik)", {
+          decision: normalizedPlan.plannerDecision,
+          skill: normalizedPlan.steps[0]?.tool,
         });
+        if (eventBus) {
+          await eventBus.emit(EVENT_TYPES.PLANNER_DECISION, {
+            timestamp: new Date().toISOString(),
+            agent: agentName,
+            payload: {
+              decision: normalizedPlan.plannerDecision,
+              stepCount: normalizedPlan.steps.length,
+              summary: normalizedPlan.summary,
+              toolsInPrompt: selectedSchemas.length,
+              source: "intent-skill-match",
+            },
+          });
+        }
+        return normalizedPlan;
       }
-      return normalizedPlan;
     }
 
     const rawDecision = await this.llmProvider.plan(prompt, input);
-    const normalizedPlan = normalizePlannerDecision(rawDecision);
+    const coerced = coerceForbiddenToolsToSkill(
+      rawDecision,
+      message,
+      this.skillRegistry,
+    );
+    const normalizedPlan = normalizePlannerDecision(coerced);
 
     this.logger.info("Planner decision", {
       decision: normalizedPlan.plannerDecision,
       stepCount: normalizedPlan.steps.length,
     });
+    // eslint-disable-next-line no-console
+    console.log("PLANNER RESULT:", normalizedPlan);
 
     if (eventBus) {
       await eventBus.emit(EVENT_TYPES.PLANNER_DECISION, {
