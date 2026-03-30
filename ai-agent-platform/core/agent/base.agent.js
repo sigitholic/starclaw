@@ -112,7 +112,7 @@ class BaseAgent {
 
       plan = applyPlannerSuccessRespondPolicy(plan, loopInput.__lastToolResult);
 
-      if (this.reviewer && plan.plannerDecision === "tool") {
+      if (this.reviewer && (plan.plannerDecision === "tool" || plan.plannerDecision === "skill")) {
         this.logger.info("Meminta Reviewer Agent untuk mengevaluasi plan", {
           stepCount: plan.steps ? plan.steps.length : 0,
         });

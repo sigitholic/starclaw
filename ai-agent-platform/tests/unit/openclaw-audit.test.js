@@ -6,7 +6,7 @@ const assert = require("node:assert/strict");
 const { buildDefaultOrchestrator } = require("../../core/orchestrator/orchestrator");
 const { normalizePlannerDecision } = require("../../core/utils/validator");
 const { createToolRegistry } = require("../../core/tools");
-const { createDefaultSkillRegistry } = require("../../core/skills/skill.runtime.registry");
+const { createDefaultSkillRegistry, skillRegistry } = require("../../core/skills/skill.runtime.registry");
 const { Executor } = require("../../core/agent/executor");
 const { createLogger } = require("../../core/utils/logger");
 const { createShortMemory } = require("../../core/memory/short.memory");
@@ -51,6 +51,10 @@ test("validator menolak planner output tidak valid", () => {
   );
 });
 
+test("skillRegistry mendaftarkan skill dari skills/*.js (contoh check-system)", () => {
+  assert.ok(skillRegistry.has("check-system"), "skills/check-system.js harus dimuat");
+});
+
 test("normalizePlannerDecision mendukung action skill", () => {
   const plan = normalizePlannerDecision({
     action: "skill",
@@ -58,7 +62,7 @@ test("normalizePlannerDecision mendukung action skill", () => {
     input: { url: "https://example.com" },
     summary: "test skill",
   });
-  assert.equal(plan.plannerDecision, "tool");
+  assert.equal(plan.plannerDecision, "skill");
   assert.equal(plan.steps.length, 1);
   assert.equal(plan.steps[0].tool, "fetch-api-data");
   assert.equal(plan.steps[0].isSkill, true);
@@ -71,7 +75,7 @@ test("executor menjalankan skill yang memanggil tool", async () => {
   const executor = new Executor({ toolsRegistry, skillRegistry, logger });
 
   const plan = {
-    plannerDecision: "tool",
+    plannerDecision: "skill",
     steps: [
       {
         name: "step-1",

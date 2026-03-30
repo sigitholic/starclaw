@@ -5,7 +5,7 @@ const { Planner } = require("./planner");
 const { PlannerGuard } = require("./planner.guard");
 const { Executor } = require("./executor");
 const { createToolRegistry } = require("../tools");
-const { createDefaultSkillRegistry } = require("../skills/skill.runtime.registry");
+const { skillRegistry } = require("../skills/skill.runtime.registry");
 const { createDefaultLlmProvider, createPromptBuilder } = require("../llm/llm.provider");
 const { createMemory } = require("../memory/short.memory");
 const { createLogger } = require("../utils/logger");
@@ -21,7 +21,6 @@ function createBaseAgent({
   const selectedLlmProvider = llmProvider || createDefaultLlmProvider();
   const selectedPromptBuilder = promptBuilder || createPromptBuilder();
   const toolsRegistry = createToolRegistry(customTools);
-  const skillRegistry = createDefaultSkillRegistry();
 
   // Planner dibalut PlannerGuard — memastikan tool_name selalu valid
   const basePlanner = new Planner({

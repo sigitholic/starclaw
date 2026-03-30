@@ -53,10 +53,17 @@ class SkillRegistry {
 /** skills/ di root workspace (sibling ai-agent-platform/) */
 const DEFAULT_SKILLS_DIR = path.join(__dirname, "..", "..", "..", "skills");
 
+/**
+ * Muat skill runtime dari folder /skills:
+ * - *.skill.js — konvensi lama
+ * - *.js — konvensi baru (nama file = entry, tanpa .skill suffix); file .skill.js dimuat dulu lalu .js (override nama jika sama)
+ */
 function loadSkillsFromDir(dir = DEFAULT_SKILLS_DIR, registry = new SkillRegistry()) {
   if (!fs.existsSync(dir)) return registry;
-  const files = fs.readdirSync(dir).filter(f => f.endsWith(".skill.js"));
-  for (const file of files) {
+  const names = fs.readdirSync(dir);
+  const legacyFiles = names.filter(f => f.endsWith(".skill.js")).sort();
+  const plainFiles = names.filter(f => f.endsWith(".js") && !f.endsWith(".skill.js")).sort();
+  for (const file of [...legacyFiles, ...plainFiles]) {
     const full = path.join(dir, file);
     // eslint-disable-next-line import/no-dynamic-require, global-require
     const mod = require(full);
@@ -72,9 +79,13 @@ function createDefaultSkillRegistry() {
   return loadSkillsFromDir();
 }
 
+/** Satu registry untuk app — skillRegistry.register(skill) menambah/menimpa skill di instance ini */
+const skillRegistry = createDefaultSkillRegistry();
+
 module.exports = {
   SkillRegistry,
   loadSkillsFromDir,
   createDefaultSkillRegistry,
   DEFAULT_SKILLS_DIR,
+  skillRegistry,
 };
