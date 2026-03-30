@@ -113,15 +113,15 @@ function listAvailableSkills() {
  * Digunakan untuk auto-inject skill tanpa konfigurasi manual.
  */
 const SKILL_KEYWORDS = {
-  "genieacs":     /genieacs|tr.?069|cwmp|acs|cpe|ont|onu|router|device.manag/i,
-  "social-media": /twitter|tweet|instagram|facebook|sosmed|social.media|posting|konten|caption|schedule.post/i,
-  "coding":       /code|coding|program|debug|script|javascript|python|function|class|bug|error|refactor/i,
-  "server-ops":   /server|nginx|docker|systemd|service|deploy|linux|bash|port|firewall|ssl|ssh|cpu|memory|disk/i,
-  "data-analysis":/analisis|analyz|statistik|grafik|csv|excel|data.processing|correlation|dataset/i,
-  "networking":   /ip|subnet|vlan|bgp|ospf|mikrotik|switch|firewall|ping|traceroute|bandwidth|latency/i,
-  "research":     /riset|research|cari informasi|temukan|investigasi|kumpulkan data|competitive/i,
-  "trading":      /trading|trader|forex|saham|crypto|bitcoin|gold|xauusd|eurusd|gbpusd|mt5|metatrader|ea|expert.advisor|mql5|indikator|rsi|macd|moving.average|bollinger|candlestick|teknikal|fundamental|order|buy|sell|lot|pips|stop.loss|take.profit|backtest|robot.trading/i,
-  "coding":       /plugin baru|buat plugin|create plugin|plugin config|setting plugin|konfigurasi plugin/i,
+  // Kata kunci harus spesifik untuk menghindari false positive
+  "genieacs":     /\bgenieacs\b|tr.?069|cwmp|\bacs\b|\bcpe\b|\bont\b|\bonu\b|device.manag|provisioning.device/i,
+  "social-media": /\btwitter\b|tweet|instagram|facebook|\bsosmed\b|social.media|posting.ke|caption|schedule.post|broadcast.pesan|kirim.konten/i,
+  "coding":       /\bcode\b|coding|program|debug|\bscript\b|javascript|python|\bfunction\b|\bclass\b|\bbug\b|refactor|plugin.baru|buat.plugin|konfigurasi.plugin/i,
+  "server-ops":   /\bserver\b|nginx|systemd|\bservice\b|deploy|linux|bash|\bfirewall\b|\bssl\b|\bssh\b/i,
+  "data-analysis":/analisis.data|analyz|statistik|grafik|\bcsv\b|\bexcel\b|data.processing|correlation|\bdataset\b/i,
+  "networking":   /\bsubnet\b|vlan|bgp|ospf|mikrotik|\bswitch\b|traceroute|bandwidth|latency/i,
+  "research":     /\briset\b|\bresearch\b|cari.informasi|investigasi|kumpulkan.data|competitive.analysis/i,
+  "trading":      /\btrading\b|\bforex\b|\bsaham\b|\bcrypto\b|\bbitcoin\b|xauusd|eurusd|gbpusd|\bmt5\b|metatrader|\bea\b.*(trading|robot)|expert.advisor|mql5|\brsi\b|\bmacd\b|robot.trading|backtest/i,
 };
 
 function detectRelevantSkills(message) {
