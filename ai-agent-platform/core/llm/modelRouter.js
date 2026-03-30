@@ -1,6 +1,9 @@
 "use strict";
 
+const path = require("path");
 const { modelManager } = require("./modelManager");
+
+const skillResultHelperPath = path.join(__dirname, "..", "..", "..", "skills", "skill-result.helper.js");
 
 /**
  * Ambil payload tampilan dari hasil tool (berbagai bentuk kontrak plugin).
@@ -18,12 +21,37 @@ function extractSuccessPayload(result) {
 /**
  * Format jawaban akhir dari hasil tool terstruktur { success, data, verdict, message, ... }
  */
+function formatSkillFinalAnswer(result) {
+  const summary = result.summary != null ? String(result.summary).trim() : "";
+  const detail = result.detail && typeof result.detail === "object" && !Array.isArray(result.detail) ? result.detail : {};
+  const ok = result.success !== false;
+  const emoji = ok ? "✅" : "❌";
+  const lines = [`${emoji} ${summary || (ok ? "Selesai" : "Gagal")}`];
+  const entries = Object.entries(detail).filter(([, v]) => v != null && String(v).trim() !== "");
+  if (entries.length > 0) {
+    lines.push("");
+    lines.push("📌 Detail:");
+    for (const [k, v] of entries) {
+      lines.push(`• ${k}: ${String(v)}`);
+    }
+  }
+  return lines.join("\n");
+}
+
 function formatFinalAnswer(result) {
   if (!result || typeof result !== "object") {
     return "❌ Failed: hasil tool tidak valid";
   }
+  if (typeof result.summary === "string" && result.detail != null && typeof result.detail === "object" && !Array.isArray(result.detail)) {
+    return formatSkillFinalAnswer(result);
+  }
   if (result.success === false) {
-    const msg = result.message != null ? String(result.message) : "unknown error";
+    const msg =
+      result.message != null
+        ? String(result.message)
+        : result.summary != null
+          ? String(result.summary)
+          : "unknown error";
     return "❌ Failed: " + msg;
   }
   const payload = extractSuccessPayload(result);
@@ -36,6 +64,37 @@ function formatFinalAnswer(result) {
     body = JSON.stringify(payload, null, 2);
   }
   return "✅ Result:\n" + body;
+}
+
+/**
+ * Normalisasi keluaran skill ke { success, summary, detail } — bukan payload tool mentah.
+ */
+function normalizeSkillResult(raw) {
+  if (
+    raw &&
+    typeof raw === "object" &&
+    typeof raw.success === "boolean" &&
+    typeof raw.summary === "string" &&
+    raw.detail != null &&
+    typeof raw.detail === "object" &&
+    !Array.isArray(raw.detail)
+  ) {
+    return {
+      success: raw.success,
+      summary: raw.summary.trim() || (raw.success ? "Selesai" : "Gagal"),
+      detail: { ...raw.detail },
+    };
+  }
+  if (raw && typeof raw === "object" && typeof raw.success === "boolean" && typeof raw.summary === "string") {
+    return {
+      success: raw.success,
+      summary: raw.summary.trim() || (raw.success ? "Selesai" : "Gagal"),
+      detail: {},
+    };
+  }
+  const { fromNormalizedTool } = require(skillResultHelperPath);
+  const normalized = normalizeToolResult(raw);
+  return fromNormalizedTool(normalized);
 }
 
 /**
@@ -261,7 +320,9 @@ module.exports = {
     return callModelJson(opts);
   },
   formatFinalAnswer,
+  formatSkillFinalAnswer,
   normalizeToolResult,
+  normalizeSkillResult,
   ROUTING,
   selectModelForTask,
 };
