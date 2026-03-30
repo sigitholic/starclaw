@@ -1,6 +1,6 @@
 # Starclaw AI Agent Platform
 
-Platform AI Agent otonom berbasis Node.js yang mampu mengerjakan banyak tugas secara mandiri melalui LLM (OpenAI), tool execution, memory management, dan integrasi channel (Telegram, CLI).
+Platform AI Agent **otonom** berbasis Node.js yang mampu mengerjakan banyak tugas secara mandiri — dari operasi server, manajemen perangkat ISP (GenieACS/TR-069), posting sosial media, riset web, hingga membuat plugin dan agent baru — semua dikendalikan via Telegram, API HTTP, atau CLI.
 
 ---
 
@@ -12,12 +12,17 @@ Platform AI Agent otonom berbasis Node.js yang mampu mengerjakan banyak tugas se
 - [Instalasi](#instalasi)
 - [Konfigurasi](#konfigurasi)
 - [Menjalankan Platform](#menjalankan-platform)
+- [Skills System](#skills-system)
+- [SOUL System](#soul-system)
+- [Specialized Agents](#specialized-agents)
 - [Tools Bawaan](#tools-bawaan)
 - [Plugin System (ClawHub)](#plugin-system-clawhub)
 - [Channel Telegram](#channel-telegram)
 - [Cron & Scheduler](#cron--scheduler)
 - [Sub-Agent (Multi-Agent)](#sub-agent-multi-agent)
 - [Memory System](#memory-system)
+- [GenieACS — Manajemen Perangkat ISP](#genieacs--manajemen-perangkat-isp)
+- [Social Media & Notifikasi](#social-media--notifikasi)
 - [Workflow NOC](#workflow-noc)
 - [API HTTP](#api-http)
 - [Dashboard](#dashboard)
@@ -28,36 +33,43 @@ Platform AI Agent otonom berbasis Node.js yang mampu mengerjakan banyak tugas se
 ## Arsitektur
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                    STARCLAW AI AGENT PLATFORM                   │
-├─────────────────┬───────────────────┬───────────────────────────┤
-│   CHANNEL INPUT │   ORCHESTRATOR    │        SERVICES           │
-│                 │                   │                           │
-│  Telegram Bot ──┤                   │  API Server  :8080        │
-│  CLI Terminal ──┤──► Task Router ───┤  Dashboard   :3001        │
-│  HTTP API    ──►│                   │  WebSocket   /ws          │
-│  Local Mode  ──►│   Workflow Engine │                           │
-├─────────────────┴───────────────────┴───────────────────────────┤
-│                        AGENT LAYER                              │
-│                                                                 │
-│  ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌────────────┐  │
-│  │ Planner  │──►│ Reviewer │──►│ Executor │──►│  Memory    │  │
-│  │  (LLM)   │   │(Security)│   │ (Tools)  │   │Short+Long  │  │
-│  └──────────┘   └──────────┘   └──────────┘   └────────────┘  │
-├─────────────────────────────────────────────────────────────────┤
-│                         TOOL REGISTRY                           │
-│                                                                 │
-│  shell  │  browser  │  fs  │  http  │  docker  │  doctor       │
-│  cron   │  plugin   │  sub-agent  │  web-search  │  codebase   │
-├─────────────────────────────────────────────────────────────────┤
-│                     PLUGIN SYSTEM (ClawHub)                     │
-│                                                                 │
-│  hello-world  │  github  │  genieacs-monitor  │  [custom...]   │
-├─────────────────────────────────────────────────────────────────┤
-│                  INFRASTRUCTURE & DATA LAYER                    │
-│                                                                 │
-│  JSON Storage  │  In-Memory Vector  │  Event Bus  │  EventStore │
-└─────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                     STARCLAW AI AGENT PLATFORM                       │
+├──────────────────┬────────────────────┬──────────────────────────────┤
+│   CHANNEL INPUT  │    ORCHESTRATOR    │         SERVICES             │
+│                  │                    │                              │
+│  Telegram Bot ───┤                    │  API Server  :8080           │
+│  CLI Terminal ───┤──► Task Router ────┤  Dashboard   :3001           │
+│  HTTP API    ────►│                    │  WebSocket   /ws             │
+│  Local Mode  ────►│   Workflow Engine  │                              │
+├──────────────────┴────────────────────┴──────────────────────────────┤
+│                         SPECIALIZED AGENTS                           │
+│                                                                      │
+│  platform-assistant │ social-media │ devops │ genieacs │ research    │
+│  noc-monitor        │ noc-analyzer │ noc-executor │ openclaw-audit   │
+├──────────────────────────────────────────────────────────────────────┤
+│                    AGENT CORE (per agent)                            │
+│                                                                      │
+│  SOUL ──► Planner ──► Reviewer ──► Executor ──► Memory              │
+│  (identity)  (LLM)    (security)   (tools)    (short+long)          │
+│                                                                      │
+│  SKILLS (auto-injected ke prompt berdasarkan konteks pesan)          │
+│  genieacs │ social-media │ coding │ server-ops │ networking │ research│
+├──────────────────────────────────────────────────────────────────────┤
+│                          TOOL REGISTRY (16 tools)                   │
+│                                                                      │
+│  shell  │ browser  │ fs  │ http  │ docker  │ doctor  │ cron         │
+│  plugin │ sub-agent│ web-search │ codebase │ time                   │
+│  genieacs-tool │ social-media-tool │ notification-tool │ database-tool│
+├──────────────────────────────────────────────────────────────────────┤
+│                      PLUGIN SYSTEM (ClawHub)                        │
+│                                                                      │
+│  hello-world │ github │ genieacs-monitor v2 │ social-media │ [custom]│
+├──────────────────────────────────────────────────────────────────────┤
+│                    INFRASTRUCTURE & DATA LAYER                      │
+│                                                                      │
+│  SQLite DB │ JSON Storage │ In-Memory Vector │ Event Bus │ EventStore │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -333,9 +345,139 @@ Channel runner di-restart otomatis jika crash (exit code != 0).
 
 ---
 
+## Skills System
+
+Skills adalah file Markdown yang diinjeksi ke system prompt LLM, mengajarkan agent **kapan dan bagaimana** menggunakan tools secara efektif — persis seperti OpenClaw SKILL.md.
+
+### Cara Kerja
+
+Saat user mengirim pesan, `skill.loader.js` mendeteksi keyword dan **otomatis menginjeksi** skill yang relevan ke prompt:
+
+```
+Pesan: "reboot CPE serial ABC123"
+  → terdeteksi keyword "CPE" → inject genieacs.skill.md
+  → LLM kini tahu cara menggunakan genieacs-tool dengan benar
+```
+
+### Skill yang Tersedia
+
+| Skill File | Aktif Saat | Isi |
+|------------|-----------|-----|
+| `genieacs.skill.md` | Pesan mengandung: GenieACS, TR-069, CPE, ONT, ACS | GenieACS REST API, parameter TR-069, workflow provisioning |
+| `social-media.skill.md` | Pesan mengandung: sosmed, posting, tweet, caption | Format konten per platform, waktu optimal, tone & gaya |
+| `coding.skill.md` | Pesan mengandung: code, debug, script, bug, refactor | Workflow debug, pattern Starclaw, checklist review kode |
+| `server-ops.skill.md` | Pesan mengandung: server, nginx, docker, deploy, linux | Command monitoring, systemd, nginx, workflow deploy |
+| `networking.skill.md` | Pesan mengandung: IP, MikroTik, VLAN, latency, ping | Diagnosa jaringan, MikroTik API, SNMP |
+| `research.skill.md` | Pesan mengandung: riset, investigasi, cari informasi | Workflow riset, tips pencarian, format laporan |
+
+### Membuat Skill Baru
+
+Buat file `skills/nama-skill.skill.md`:
+
+```markdown
+# Skill: Nama Skill
+
+## Kapan Skill Ini Aktif
+[Deskripsikan konteks penggunaan]
+
+## Tools yang Tersedia
+[Tabel tool yang relevan]
+
+## Workflow
+[Langkah-langkah penggunaan]
+```
+
+Tambahkan keyword deteksi di `core/skills/skill.loader.js`:
+
+```js
+const SKILL_KEYWORDS = {
+  "nama-skill": /keyword1|keyword2|keyword3/i,
+};
+```
+
+---
+
+## SOUL System
+
+SOUL adalah file Markdown yang mendefinisikan **identitas, kepribadian, dan batasan** agent secara persisten — seperti OpenClaw SOUL.md.
+
+### File SOUL
+
+| File | Agent | Berisi |
+|------|-------|--------|
+| `soul/DEFAULT.soul.md` | Semua agent (fallback) | Identitas Starclaw, kemampuan inti, batasan umum |
+| `soul/social-media-agent.soul.md` | Social Media Agent | Persona kreatif, alur posting, batasan konten |
+| `soul/devops-agent.soul.md` | DevOps Agent | Persona teliti, alur troubleshooting, batasan server |
+| `soul/genieacs-agent.soul.md` | GenieACS Agent | Persona presisi, alur provisioning, batasan device |
+
+### Membuat SOUL Baru
+
+```markdown
+# Nama Agent — Starclaw
+
+## Role
+[Deskripsi peran utama]
+
+## Kepribadian
+- Sifat 1
+- Sifat 2
+
+## Spesialisasi
+[Kemampuan khusus]
+
+## Batasan
+[Hal yang tidak boleh dilakukan]
+```
+
+Simpan di `soul/nama-agent.soul.md`. SOUL otomatis diload saat agent diinisialisasi.
+
+---
+
+## Specialized Agents
+
+Starclaw memiliki beberapa agent yang sudah terspesialisasi, masing-masing dengan SOUL dan Skills yang sesuai:
+
+| Task Name | Agent | Spesialisasi | Skills Otomatis |
+|-----------|-------|-------------|-----------------|
+| `platform-assistant` | Platform Assistant | Agent generalis, handle semua task | Auto-detect dari pesan |
+| `social-media` | Social Media Agent | Buat & post konten sosmed | social-media |
+| `devops` | DevOps Agent | Server ops, deploy, monitoring | server-ops |
+| `genieacs` | GenieACS Agent | Manajemen CPE/ONT ISP via TR-069 | genieacs, networking |
+| `research` | Research Agent | Riset mendalam dari web | research |
+| `openclaw-audit` | OpenClaw Mapper | Audit arsitektur platform | — |
+
+### Cara Memanggil Specialized Agent
+
+**Via HTTP API:**
+```bash
+# Social Media Agent
+curl -X POST http://localhost:8080/tasks/run \
+  -d '{"task":"social-media","message":"buat caption Instagram tentang layanan internet fiber"}'
+
+# GenieACS Agent
+curl -X POST http://localhost:8080/tasks/run \
+  -d '{"task":"genieacs","message":"tampilkan semua device yang terdaftar di ACS"}'
+
+# DevOps Agent
+curl -X POST http://localhost:8080/tasks/run \
+  -d '{"task":"devops","message":"cek status semua service dan laporkan yang bermasalah"}'
+
+# Research Agent
+curl -X POST http://localhost:8080/tasks/run \
+  -d '{"task":"research","message":"riset 3 kompetitor ISP lokal dan bandingkan paket mereka"}'
+```
+
+**Via Telegram** (kirim pesan biasa — platform-assistant akan handle, atau minta langsung):
+```
+"sebagai social media agent, buat konten tentang promo ramadhan"
+"minta genieacs agent cek device dengan serial XYZ123"
+```
+
+---
+
 ## Tools Bawaan
 
-Semua tools terdaftar otomatis di setiap agent instance:
+Semua tools terdaftar otomatis di setiap agent instance (16 tools total):
 
 | Tool | Nama | Fungsi |
 |------|------|--------|
@@ -351,6 +493,10 @@ Semua tools terdaftar otomatis di setiap agent instance:
 | Sub-Agent | `sub-agent-tool` | Spawn child agent untuk tugas paralel |
 | Cron | `cron-tool` | Buat/kelola jadwal task otomatis |
 | Time | `time-tool` | Info waktu & timezone (WIB) |
+| **GenieACS** | `genieacs-tool` | **Manajemen CPE/ONT via GenieACS REST API** |
+| **Social Media** | `social-media-tool` | **Post ke Telegram, Twitter/X, webhook** |
+| **Notification** | `notification-tool` | **Email (Mailgun/SendGrid), Pushover, webhook** |
+| **Database** | `database-tool` | **SQLite lokal — insert/select/query** |
 
 ### Contoh Perintah Agent
 
@@ -558,6 +704,93 @@ Child agent punya tools lengkap yang sama dengan parent, berjalan non-blocking.
 
 ---
 
+## GenieACS — Manajemen Perangkat ISP
+
+Starclaw terintegrasi penuh dengan **GenieACS ACS server** untuk manajemen perangkat CPE/ONT/Router ISP via protokol TR-069/CWMP.
+
+### Setup
+
+```env
+GENIEACS_URL=http://localhost:7557
+GENIEACS_USER=admin        # opsional
+GENIEACS_PASS=password     # opsional
+```
+
+### Contoh Perintah via Chat
+
+```
+"tampilkan semua device yang terdaftar di ACS"
+"cek status device dengan serial number ABC123"
+"reboot CPE dengan ID XYZ-456"
+"set DNS device ABC123 ke 8.8.8.8"
+"tampilkan semua fault yang ada"
+"ubah SSID WiFi device XYZ ke 'MyNetwork' dan password ke 'secret123'"
+```
+
+### Operasi yang Didukung
+
+| Operasi | Action |
+|---------|--------|
+| List semua device | `list-devices` |
+| Detail 1 device | `get-device` |
+| Reboot device | `reboot` |
+| Factory reset | `factory-reset` |
+| Set parameter | `set-parameter` |
+| Get parameter | `get-parameter` |
+| Task kustom TR-069 | `task` |
+| List fault | `list-faults` |
+| Clear fault | `clear-fault` |
+| List preset | `list-presets` |
+| Hapus device | `delete-device` |
+
+### Plugin GenieACS
+
+```
+/plugin load genieacs-monitor
+```
+
+Plugin v2.0 sudah terintegrasi dengan `genieacs-tool` yang lengkap.
+
+---
+
+## Social Media & Notifikasi
+
+### Platform yang Didukung
+
+| Platform | Tool | Konfigurasi |
+|----------|------|-------------|
+| Telegram broadcast | `social-media-tool` | `TELEGRAM_BOT_TOKEN` |
+| Telegram specific chat | `social-media-tool` | `TELEGRAM_BOT_TOKEN` |
+| Twitter/X | `social-media-tool` | `TWITTER_BEARER_TOKEN` |
+| Discord/Slack/webhook | `social-media-tool` | `SOCIAL_WEBHOOK_URL` |
+| Email (Mailgun) | `notification-tool` | `MAILGUN_API_KEY`, `MAILGUN_DOMAIN` |
+| Email (SendGrid) | `notification-tool` | `SENDGRID_API_KEY` |
+| Pushover (push notif) | `notification-tool` | `PUSHOVER_TOKEN`, `PUSHOVER_USER` |
+| Webhook notifikasi | `notification-tool` | `NOTIFICATION_WEBHOOK_URL` |
+
+### Contoh Perintah
+
+```
+"buat caption Instagram tentang promo internet fiber dan posting ke Telegram"
+"broadcast pengumuman maintenance ke semua user Telegram"
+"tweet: Platform Starclaw AI Agent kini mendukung GenieACS TR-069 #AI #ISP"
+"kirim email ke admin@company.com: server sudah kembali normal"
+"jadwalkan posting promo setiap Senin jam 9 pagi"
+```
+
+### Plugin Social Media
+
+```
+/plugin load social-media
+```
+
+Atau load via agent:
+```
+"load plugin social-media"
+```
+
+---
+
 ## Workflow NOC
 
 Module khusus untuk Network Operations Center (monitoring jaringan).
@@ -737,6 +970,48 @@ orchestrator.registerWorkflow("nama-workflow", async ({ payload, eventBus }) => 
 
 # Manual: buat folder plugins/monitor-redis/index.js
 # Lihat plugins/hello-world/index.js sebagai template
+```
+
+### Membuat Skill Baru
+
+```markdown
+<!-- skills/nama-skill.skill.md -->
+# Skill: Nama Skill
+
+## Kapan Skill Ini Aktif
+Gunakan saat user meminta [deskripsi konteks]
+
+## Tools yang Tersedia
+| Tool | Kapan |
+|------|-------|
+| `nama-tool` | deskripsi |
+
+## Workflow
+1. Langkah pertama
+2. Langkah kedua
+```
+
+Tambahkan keyword di `core/skills/skill.loader.js`:
+```js
+const SKILL_KEYWORDS = {
+  "nama-skill": /keyword1|keyword2/i,
+};
+```
+
+### Membuat SOUL Baru
+
+```markdown
+<!-- soul/nama-agent.soul.md -->
+# Nama Agent
+
+## Role
+[Deskripsi peran]
+
+## Kepribadian
+- Sifat 1
+
+## Batasan
+- Hal yang tidak boleh dilakukan
 ```
 
 ### Struktur Event
