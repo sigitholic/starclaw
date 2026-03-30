@@ -6,6 +6,7 @@ const { createSocialMediaAgent } = require("../../modules/shared/agents/social-m
 const { createDevOpsAgent } = require("../../modules/shared/agents/devops.agent");
 const { createGenieAcsAgent } = require("../../modules/shared/agents/genieacs.agent");
 const { createResearchAgent } = require("../../modules/shared/agents/research.agent");
+const { createTradingAgent } = require("../../modules/shared/agents/trading.agent");
 
 function createTaskRouter(customRoutes = {}) {
   const routes = {
@@ -17,6 +18,7 @@ function createTaskRouter(customRoutes = {}) {
     "devops": createDevOpsAgent(),
     "genieacs": createGenieAcsAgent(),
     "research": createResearchAgent(),
+    "trading": createTradingAgent(),
 
     // Audit & legacy
     "openclaw-audit": createOpenClawArchitectureMapperAgent(),

@@ -77,6 +77,7 @@ const SKILL_KEYWORDS = {
   "data-analysis":/analisis|analyz|statistik|grafik|csv|excel|data.processing|correlation|dataset/i,
   "networking":   /ip|subnet|vlan|bgp|ospf|mikrotik|switch|firewall|ping|traceroute|bandwidth|latency/i,
   "research":     /riset|research|cari informasi|temukan|investigasi|kumpulkan data|competitive/i,
+  "trading":      /trading|trader|forex|saham|crypto|bitcoin|gold|xauusd|eurusd|gbpusd|mt5|metatrader|ea|expert.advisor|mql5|indikator|rsi|macd|moving.average|bollinger|candlestick|teknikal|fundamental|order|buy|sell|lot|pips|stop.loss|take.profit|backtest|robot.trading/i,
 };
 
 function detectRelevantSkills(message) {

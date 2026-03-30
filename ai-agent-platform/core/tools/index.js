@@ -16,6 +16,9 @@ const { createGenieAcsTool } = require("./genieacs.tool");
 const { createSocialMediaTool } = require("./social-media.tool");
 const { createNotificationTool } = require("./notification.tool");
 const { createDatabaseTool } = require("./database.tool");
+const { createMarketDataTool } = require("./market-data.tool");
+const { createMql5Tool } = require("./mql5.tool");
+const { createMt5BridgeTool } = require("./mt5-bridge.tool");
 const { validateToolContract } = require("../utils/validator");
 const { createPluginManager } = require("../plugins/plugin.manager");
 const { createSubAgentManager } = require("../agent/sub-agent.manager");
@@ -72,6 +75,10 @@ function createToolRegistry(customTools = []) {
     createSocialMediaTool(),
     createNotificationTool(),
     createDatabaseTool(),
+    // Trading & Financial
+    createMarketDataTool(),
+    createMql5Tool(),
+    createMt5BridgeTool(),
     ...customTools,
   ];
 
