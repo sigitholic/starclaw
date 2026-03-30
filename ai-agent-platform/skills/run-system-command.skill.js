@@ -18,7 +18,13 @@ module.exports = {
     } else {
       command = "pwd";
     }
-    const toolInput = { command };
+    const toolInput = {
+      command,
+      meta: {
+        source: "skill",
+        skillName: "run-system-command",
+      },
+    };
     const raw = await tools["shell-tool"].run(toolInput);
     return fromNormalizedTool(normalizeToolResult(raw));
   },
