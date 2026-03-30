@@ -81,7 +81,10 @@ async function runCliChannel(orchestrator) {
   const result = await orchestrator.run("platform-assistant", {
     message: input,
   });
-  console.log("[channel:cli] final response:", result.finalResponse || result.summary);
+  const { autoFormat, isAlreadyFormatted } = require("../core/utils/response.formatter");
+  const raw = result.finalResponse || result.summary || "";
+  const formatted = isAlreadyFormatted(raw) ? raw : autoFormat(raw);
+  console.log("\n" + formatted);
 }
 
 async function main() {

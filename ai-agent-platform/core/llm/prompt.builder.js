@@ -2,6 +2,42 @@
 
 const { autoLoadSkills } = require("../skills/skill.loader");
 
+// Instruksi format respons yang diinjeksi ke semua prompt
+const RESPONSE_FORMAT_INSTRUCTION = `
+═══ FORMAT RESPONS WAJIB ═══
+Saat kamu memberikan jawaban akhir (action: respond), WAJIB gunakan format berikut:
+
+[STATUS]
+✅ Berhasil <judul singkat>  |  ❌ Gagal <judul singkat>  |  ⚠️ <judul singkat>
+
+[RINGKASAN]
+1-2 kalimat penjelasan hasil
+
+[DETAIL]
+• poin 1
+• poin 2
+• poin 3
+
+[AKSI]
+Apa yang bisa dilakukan user selanjutnya
+
+Contoh BENAR:
+✅ Berhasil mengambil 5 perangkat GenieACS
+
+📋 Ringkasan:
+5 perangkat ditemukan, 3 online dan 2 offline
+
+📌 Detail:
+• 🟢 ONT-001 — Online
+• 🔴 ONT-002 — Offline (last seen 2 jam lalu)
+• 🟢 Router-003 — Online
+
+➡️ Aksi:
+Ketik "reboot device ONT-002" untuk restart perangkat offline
+
+DILARANG: Memberikan paragraf panjang tanpa struktur di atas.
+`.trim();
+
 function createPromptBuilder() {
   function formatRecentContext(context) {
     if (!context || !Array.isArray(context.recent) || context.recent.length === 0) {
@@ -139,6 +175,10 @@ PANDUAN PENJADWALAN & PENGINGAT:
       if (skillsText) {
         parts.push(skillsText);
       }
+
+      // Inject format respons — selalu ada di setiap prompt
+      parts.push("");
+      parts.push(RESPONSE_FORMAT_INSTRUCTION);
 
       parts.push(`User message: ${typeof input.message === "string" ? input.message : ""}`);
 

@@ -11,6 +11,7 @@ const { createPluginProcessManager } = require("../plugins/process.manager");
 const { cronManager } = require("../scheduler/cron.manager");
 const { parseTimeFromMessage, isReminderRequest } = require("../scheduler/time-parser");
 const { EVENT_TYPES } = require("../events/event.types");
+const { autoFormat, isAlreadyFormatted } = require("../utils/response.formatter");
 
 function createTelegramChannel({
   botToken,
@@ -860,11 +861,16 @@ function createTelegramChannel({
         __chatId: chatIdStr,
       });
 
-      const responseText = assistantResult.finalResponse || assistantResult.summary;
+      const rawResponse = assistantResult.finalResponse || assistantResult.summary || "";
+
+      // Auto-format jika LLM tidak mengikuti format standar
+      const responseText = isAlreadyFormatted(rawResponse)
+        ? rawResponse
+        : autoFormat(rawResponse);
 
       await safeSend(chatId, responseText, progressMsg.message_id);
     } catch (e) {
-      await safeSend(chatId, `❌ Error: ${e.message}`);
+      await safeSend(chatId, `❌ Error: ${e.message}\n\n➡️ Ketik 'cek status platform' untuk diagnostik`);
     }
   }
 
