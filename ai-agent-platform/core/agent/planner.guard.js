@@ -2,21 +2,8 @@
 
 /**
  * Planner Guard — validasi output planner sebelum diteruskan ke executor.
- *
- * Lapisan keamanan antara LLM output dan executor:
- *
- *   LLM output → [normalizePlannerDecision] → [PlannerGuard] → Executor
- *
- * Guard melakukan:
- *   1. Cek setiap tool_name ada di registry
- *   2. Fuzzy match jika tidak ditemukan (auto-correction)
- *   3. Log detail saat ada mismatch
- *   4. Trigger regenerate jika tool tidak bisa di-correct
- *
- * Hasilnya: Executor TIDAK PERNAH menerima tool_name yang tidak ada di registry.
+ * Regenerasi via LLM dinonaktifkan; hanya satu pass rule-based + koreksi registry.
  */
-
-const MAX_REGENERATE_ATTEMPTS = 2;
 
 /**
  * Validasi dan koreksi semua steps dalam normalized plan.
@@ -78,7 +65,6 @@ function guardPlan(plan, toolsRegistry, skillRegistry, logger) {
     const resolved = toolsRegistry.resolve(toolName);
 
     if (resolved.tool && !resolved.wasExact) {
-      // Auto-correction berhasil
       logger.warn("PlannerGuard: tool auto-corrected via fuzzy match", {
         requested: toolName,
         corrected: resolved.resolvedName,
@@ -92,7 +78,6 @@ function guardPlan(plan, toolsRegistry, skillRegistry, logger) {
       });
       correctedSteps.push({ ...step, tool: resolved.resolvedName });
     } else {
-      // Tidak bisa di-correct
       logger.error("PlannerGuard: tool tidak ditemukan dan tidak bisa di-correct", {
         requested: toolName,
         available: toolsRegistry.list(),
@@ -104,7 +89,7 @@ function guardPlan(plan, toolsRegistry, skillRegistry, logger) {
         available: toolsRegistry.list(),
         fatal: true,
       });
-      correctedSteps.push(step); // Tetap masukkan — executor akan handle
+      correctedSteps.push(step);
     }
   }
 
@@ -120,7 +105,7 @@ function guardPlan(plan, toolsRegistry, skillRegistry, logger) {
 }
 
 /**
- * Buat prompt regenerasi yang minta LLM pilih tool yang valid.
+ * Buat prompt regenerasi (legacy — tidak dipakai saat LLM regenerate dimatikan).
  */
 function buildRegeneratePrompt(originalMessage, invalidTools, availableTools, availableSkills = []) {
   const skillLines = availableSkills.length > 0
@@ -147,7 +132,7 @@ function buildRegeneratePrompt(originalMessage, invalidTools, availableTools, av
 }
 
 /**
- * PlannerGuard class — wrapper di sekitar Planner yang memastikan output valid.
+ * PlannerGuard — satu pass; tanpa regenerate LLM.
  */
 class PlannerGuard {
   constructor({ planner, toolsRegistry, skillRegistry, llmProvider, logger }) {
@@ -159,81 +144,36 @@ class PlannerGuard {
   }
 
   async createPlan(input) {
-    let attempt = 0;
-    let lastIssues = [];
+    const rawPlan = await this.planner.createPlan(input);
 
-    while (attempt <= MAX_REGENERATE_ATTEMPTS) {
-      attempt++;
-
-      // Dapatkan plan dari planner
-      const rawPlan = await this.planner.createPlan(input);
-
-      // Skip validasi untuk plan tipe 'respond' (tidak ada tool)
-      if (rawPlan.plannerDecision === "respond" || rawPlan.steps.length === 0) {
-        return rawPlan;
-      }
-
-      // Guard: validasi semua tool names
-      const { valid, correctedPlan, issues, autoCorrections } = guardPlan(
-        rawPlan, this.toolsRegistry, this.skillRegistry, this.logger
-      );
-
-      if (autoCorrections > 0) {
-        this.logger.info("PlannerGuard: auto-correction applied", { count: autoCorrections });
-      }
-
-      if (valid) {
-        // Semua tool valid (atau sudah di-correct)
-        if (issues.length > 0) {
-          this.logger.warn("PlannerGuard: plan valid dengan koreksi", { issues: issues.length });
-        }
-        return correctedPlan;
-      }
-
-      // Ada fatal issues — perlu regenerate
-      lastIssues = issues;
-      const fatalIssues = issues.filter(i => i.fatal);
-      const invalidToolNames = fatalIssues.map(i => i.step);
-
-      this.logger.warn("PlannerGuard: plan tidak valid, regenerate", {
-        attempt,
-        maxAttempts: MAX_REGENERATE_ATTEMPTS,
-        fatalIssues: fatalIssues.length,
-        invalidTools: fatalIssues.map(i => i.error),
-      });
-
-      if (attempt > MAX_REGENERATE_ATTEMPTS) break;
-
-      // Buat prompt regenerasi dengan daftar tool yang valid
-      const availableTools = this.toolsRegistry.getToolList();
-      const availableSkills = this.skillRegistry && typeof this.skillRegistry.getSkillList === "function"
-        ? this.skillRegistry.getSkillList()
-        : [];
-      const regeneratePrompt = buildRegeneratePrompt(
-        input.message || "",
-        fatalIssues.map(i => i.error),
-        availableTools,
-        availableSkills
-      );
-
-      // Override pesan untuk regenerasi
-      input = {
-        ...input,
-        message: regeneratePrompt,
-        __isRegenerate: true,
-        __regenerateAttempt: attempt,
-      };
+    if (rawPlan.plannerDecision === "respond" || rawPlan.steps.length === 0) {
+      return rawPlan;
     }
 
-    // Semua attempt habis — return plan yang ada dengan peringatan
-    this.logger.error("PlannerGuard: semua attempt regenerate habis", {
-      issues: lastIssues.map(i => i.error),
+    const { valid, correctedPlan, issues, autoCorrections } = guardPlan(
+      rawPlan, this.toolsRegistry, this.skillRegistry, this.logger
+    );
+
+    if (autoCorrections > 0) {
+      this.logger.info("PlannerGuard: auto-correction applied", { count: autoCorrections });
+    }
+
+    if (valid) {
+      if (issues.length > 0) {
+        this.logger.warn("PlannerGuard: plan valid dengan koreksi", { issues: issues.length });
+      }
+      return correctedPlan;
+    }
+
+    const fatalIssues = issues.filter(i => i.fatal);
+    this.logger.error("PlannerGuard: plan tidak valid (tanpa regenerate LLM)", {
+      fatalIssues: fatalIssues.length,
+      invalidTools: fatalIssues.map(i => i.error),
     });
 
-    // Kembalikan fallback respond plan
     return {
       steps: [],
-      summary: "Planner tidak dapat menemukan tool yang valid",
+      summary: "Planner tidak dapat menemukan tool atau skill yang valid",
       baseScore: 0,
       gaps: [],
       recommendations: [],
@@ -241,7 +181,7 @@ class PlannerGuard {
         "Tidak dapat menjalankan perintah karena tool atau skill yang dibutuhkan tidak tersedia.",
         `Tool tersedia: ${this.toolsRegistry.list().join(", ")}`,
         this.skillRegistry && this.skillRegistry.list ? `Skill tersedia: ${this.skillRegistry.list().join(", ")}` : "",
-        `Masalah: ${lastIssues.map(i => i.error).join("; ")}`,
+        `Masalah: ${fatalIssues.map(i => i.error).join("; ")}`,
       ].filter(Boolean).join(" "),
       plannerDecision: "respond",
     };
