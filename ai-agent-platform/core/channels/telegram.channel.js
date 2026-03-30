@@ -230,16 +230,21 @@ function createTelegramChannel({
       return;
     }
 
-    if (pairingEnabled && !store.isPaired(chatIdStr)) {
-      await tgCall("sendMessage", {
-        chat_id: chatId,
-        text: "Akses ditolak. Chat belum terdaftar.\nSilakan pairing dulu: /pair <code>",
-      });
-      return;
-    }
-
-    // /start — Onboarding Flow
+    // /start harus diizinkan sebelum pengecekan pairing agar user baru bisa onboarding
     if (text === "/start") {
+      // Jika pairing aktif dan belum paired, /start hanya tampilkan instruksi pairing
+      if (pairingEnabled && !store.isPaired(chatIdStr)) {
+        await tgCall("sendMessage", {
+          chat_id: chatId,
+          text:
+            `👋 *Selamat datang!*\n\n` +
+            `Bot ini memerlukan pairing untuk pertama kali.\n` +
+            `Silakan gunakan kode akses yang diberikan admin:\n\n` +
+            `/pair <kode_akses>`,
+          parse_mode: "Markdown",
+        });
+        return;
+      }
       personaStore.set(chatIdStr, { onboardingStep: "awaiting_name" });
       await tgCall("sendMessage", {
         chat_id: chatId,
@@ -254,6 +259,15 @@ function createTelegramChannel({
           `Mari kita mulai! 🚀\n` +
           `*Mau kasih nama aku siapa?*`,
         parse_mode: "Markdown",
+      });
+      return;
+    }
+
+    // Semua command selain /pair, /unpair, /start wajib paired terlebih dahulu
+    if (pairingEnabled && !store.isPaired(chatIdStr)) {
+      await tgCall("sendMessage", {
+        chat_id: chatId,
+        text: "Akses ditolak. Chat belum terdaftar.\nSilakan pairing dulu: /pair <code>",
       });
       return;
     }
