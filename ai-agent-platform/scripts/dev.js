@@ -12,4 +12,5 @@ if (major < 18) {
   process.exit(1);
 }
 
+require("../config/load-env").loadEnv();
 require("../apps/api/index");

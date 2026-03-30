@@ -20,6 +20,29 @@ const { validatePlugin, validateToolPlugin, formatValidationResult } = require("
  *   deactivate(),                   // Cleanup hook (opsional)
  * }
  */
+/**
+ * Jika plugin.json tidak ada: log peringatan dan tulis metadata default (sekali).
+ */
+function ensurePluginManifest(pluginDir, folderName) {
+  const manifestPath = path.join(pluginDir, "plugin.json");
+  if (fs.existsSync(manifestPath)) return;
+
+  console.warn(
+    `[PluginManager] plugin.json tidak ditemukan untuk '${folderName}' — membuat metadata default`
+  );
+  const defaultMeta = {
+    name: folderName,
+    version: "0.0.0",
+    description: `Plugin ${folderName} (metadata otomatis — lengkapi plugin.json)`,
+    configSchema: [],
+  };
+  try {
+    fs.writeFileSync(manifestPath, JSON.stringify(defaultMeta, null, 2), "utf-8");
+  } catch (err) {
+    console.warn(`[PluginManager] Gagal menulis plugin.json default: ${err.message}`);
+  }
+}
+
 function createPluginManager({ toolsRegistry, orchestrator = null } = {}) {
   const plugins = new Map(); // name → { meta, tools[], workflows[], status }
 
@@ -81,6 +104,8 @@ function createPluginManager({ toolsRegistry, orchestrator = null } = {}) {
     const pluginDir = path.dirname(normalizedPath);
     const pluginConfigName = fallbackName || path.basename(pluginDir);
 
+    ensurePluginManifest(pluginDir, pluginConfigName);
+
     // === VALIDASI SEBELUM LOAD ===
     const validation = validateToolPlugin(pluginDir, pluginConfigName);
 
@@ -126,7 +151,11 @@ function createPluginManager({ toolsRegistry, orchestrator = null } = {}) {
         try {
           validateToolContract(tool);
           if (toolsRegistry && typeof toolsRegistry.register === "function") {
-            toolsRegistry.register(tool);
+            if (typeof toolsRegistry.has === "function" && toolsRegistry.has(tool.name)) {
+              console.warn(`[PluginManager] Tool '${tool.name}' sudah ada di registry — lewati duplikat`);
+            } else {
+              toolsRegistry.register(tool);
+            }
           }
           registeredTools.push(tool.name);
         } catch (err) {
