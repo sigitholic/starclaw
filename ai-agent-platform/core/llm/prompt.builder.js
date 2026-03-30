@@ -174,6 +174,11 @@ PANDUAN PENJADWALAN & PENGINGAT:
         })(),
         extras,
         `Execution step (workflow): ${typeof input.__stepCount === "number" ? input.__stepCount : 1} / ${agentConfig.maxExecutionSteps || 5}`,
+        (() => {
+          const sm = input && input.__shortMemory;
+          if (!sm || typeof sm !== "object" || Object.keys(sm).length === 0) return "";
+          return `Short-term session memory (facts; reuse for follow-ups like "lagi" / "yang tadi"): ${JSON.stringify(sm)}`;
+        })(),
         `Recent context (max 3): ${formatRecentContext(context)}`,
         `Context token usage: ${JSON.stringify(context.tokenUsage || {})}`,
       ];

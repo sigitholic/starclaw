@@ -19,12 +19,37 @@ function extractIP(text) {
 }
 
 /**
+ * Ucapan lanjutan yang mengisyaratkan memakai konteks sebelumnya (mis. target ping).
+ * Sengaja tidak memakai /\blagi\b/ global — hindari salah positif ("halo lagi").
+ */
+function isFollowUpIntent(text) {
+  const t = String(text || "").toLowerCase().trim();
+  if (!t) return false;
+  if (/^\s*(lagi|ulang)\s*[!.?…]*\s*$/i.test(t)) return true;
+  if (/\bping\s+(lagi|ulang)\b/.test(t)) return true;
+  if (/\b(lagi|ulang)\s+ping\b/.test(t)) return true;
+  if (/\bcoba\s+lagi\b/.test(t)) return true;
+  if (/yang\s+tadi/.test(t)) return true;
+  if (/yang\s+sama/.test(t)) return true;
+  if (/sekali\s+lagi/.test(t)) return true;
+  if (/\bsama\s+itu\b/.test(t)) return true;
+  if (/\brepeat\b/.test(t)) return true;
+  return false;
+}
+
+/**
  * @param {string} userInput
+ * @param {Record<string, unknown> | null} shortMemory - snapshot memori sesi (mis. lastPingTarget)
  * @returns {{ type: "skill"|"chat", skill?: string, input?: object, message?: string }}
  */
-function plan(userInput) {
+function plan(userInput, shortMemory = null) {
   const msg = typeof userInput === "string" ? userInput : "";
   const text = msg.toLowerCase();
+  const mem = shortMemory && typeof shortMemory === "object" ? shortMemory : {};
+  const lastPing =
+    typeof mem.lastPingTarget === "string" && mem.lastPingTarget.trim()
+      ? mem.lastPingTarget.trim()
+      : null;
 
   // GREETING → CHAT (pertama)
   if (
@@ -37,13 +62,21 @@ function plan(userInput) {
     return { type: "chat", message: msg };
   }
 
-  // PRIORITY 1: PING
+  // PRIORITY 1: PING (+ reuse target dari memori sesi untuk follow-up)
   if (text.includes("ping")) {
+    const ip = extractIP(userInput);
+    if (isFollowUpIntent(text) && !ip && lastPing) {
+      return {
+        type: "skill",
+        skill: "run-system-command",
+        input: { target: lastPing },
+      };
+    }
     return {
       type: "skill",
       skill: "run-system-command",
       input: {
-        target: extractIP(userInput) || "127.0.0.1",
+        target: ip || "127.0.0.1",
       },
     };
   }
@@ -75,6 +108,15 @@ function plan(userInput) {
     };
   }
 
+  // Follow-up singkat (mis. "lagi", "yang tadi") → ulangi ping ke target terakhir dari memori sesi
+  if (isFollowUpIntent(text) && lastPing) {
+    return {
+      type: "skill",
+      skill: "run-system-command",
+      input: { target: lastPing },
+    };
+  }
+
   return { type: "chat", message: msg };
 }
 
@@ -92,7 +134,7 @@ const FORBIDDEN_DIRECT_TOOLS = ["shell-tool"];
  * @param {{ has?: (name: string) => boolean } | null} skillRegistry
  * @returns {object} raw decision untuk normalizePlannerDecision
  */
-function coerceForbiddenToolsToSkill(rawPlan, userMessage, skillRegistry) {
+function coerceForbiddenToolsToSkill(rawPlan, userMessage, skillRegistry, shortMemory = null) {
   if (!rawPlan || !skillRegistry) return rawPlan;
 
   const toolFromSingle =
@@ -107,7 +149,7 @@ function coerceForbiddenToolsToSkill(rawPlan, userMessage, skillRegistry) {
     });
   if (!usesForbidden) return rawPlan;
 
-  const intent = plan(userMessage);
+  const intent = plan(userMessage, shortMemory);
   if (
     intent.type === "skill" &&
     intent.skill &&
@@ -137,14 +179,14 @@ function coerceForbiddenToolsToSkill(rawPlan, userMessage, skillRegistry) {
  * @param {{ has?: (name: string) => boolean } | null} skillRegistry
  * @returns {object | null} raw decision untuk normalizePlannerDecision, atau null
  */
-function matchIntentToSkill(message, skillRegistry) {
+function matchIntentToSkill(message, skillRegistry, shortMemory = null) {
   if (!skillRegistry || typeof skillRegistry.has !== "function" || typeof message !== "string") {
     return null;
   }
   const m = message.trim();
   if (!m) return null;
 
-  const intent = plan(m);
+  const intent = plan(m, shortMemory);
   if (intent.type !== "skill" || !intent.skill) {
     return null;
   }
@@ -172,6 +214,7 @@ function matchIntentToSkill(message, skillRegistry) {
 module.exports = {
   normalize,
   extractIP,
+  isFollowUpIntent,
   plan,
   planUserIntent,
   matchIntentToSkill,
