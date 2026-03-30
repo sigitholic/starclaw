@@ -103,9 +103,11 @@ function createPromptBuilder() {
       const instructions = `
 OUTPUT WAJIB: JSON murni, tanpa teks tambahan, tanpa markdown code block.
 
-═══ PILIHAN: SKILL vs TOOL ═══
-- SKILL: tugas tingkat tinggi yang memetakan ke satu atau beberapa tool (lihat [AVAILABLE] — kind "skill"). UTAMAKAN skill untuk tugas kompleks, multi-langkah, atau ketika nama skill jelas sesuai kebutuhan.
-- TOOL: panggilan langsung ke satu tool (kind "tool"). Gunakan untuk tugas sederhana satu langkah (misalnya satu perintah shell atau satu query).
+═══ PILIHAN: SKILL vs TOOL (WAJIB: SKILL DULU) ═══
+- LANGKAH 1: Cek daftar [AVAILABLE] — jika ada skill (kind "skill") yang cocok dengan maksud user, WAJIB pakai action "skill" dengan skill_name tersebut.
+- SKILL: tugas tingkat pengguna; memetakan ke tool internal. UTAMAKAN untuk perintah shell/terminal/ping/exec → skill "run-system-command", BUKAN "shell-tool" langsung.
+- TOOL: eksekusi rendah (kind "tool"). Hanya jika TIDAK ADA skill yang cocok.
+- LARANGAN: Jangan pilih "shell-tool" untuk perintah user biasa (ping, jalankan perintah, dll.) — gunakan skill "run-system-command" jika tersedia.
 
 ═══ ATURAN NAMA (WAJIB DIPATUHI) ═══
 1. Untuk action "tool": field "tool_name" HARUS nama EKSAK dari daftar [AVAILABLE] dengan kind tool
