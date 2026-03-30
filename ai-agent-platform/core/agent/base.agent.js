@@ -29,16 +29,24 @@ class BaseAgent {
     }
 
     this.logger.info("Agent menerima input", { agent: this.name });
-    const plannerContext = this.memory.short.buildPlannerContext({
-      maxTokens: agentConfig.defaultTokenBudget,
-      keepRecent: agentConfig.plannerRecentWindow,
-    });
+
+    // Gunakan async context builder jika tersedia (mendukung LLM summarizer)
+    const plannerContext = typeof this.memory.short.buildPlannerContextAsync === "function"
+      ? await this.memory.short.buildPlannerContextAsync({
+          maxTokens: agentConfig.defaultTokenBudget,
+          keepRecent: agentConfig.plannerRecentWindow,
+        })
+      : this.memory.short.buildPlannerContext({
+          maxTokens: agentConfig.defaultTokenBudget,
+          keepRecent: agentConfig.plannerRecentWindow,
+        });
 
     if (plannerContext.didSummarize) {
       this.logger.info("Summarization terjadi karena context limit", {
         agent: this.name,
         tokenUsage: plannerContext.tokenUsage,
         fullHistoryUsage: plannerContext.fullHistoryUsage,
+        method: agentConfig.useLLMSummarizer ? "llm" : "rule-based",
       });
     }
 
@@ -50,7 +58,7 @@ class BaseAgent {
     });
 
     if (this.reviewer && plan.plannerDecision === "tool") {
-      this.logger.info("Meminta Reviewer Agent untuk mengevaluasi plan", { stepCount: plan.steps?.length });
+      this.logger.info("Meminta Reviewer Agent untuk mengevaluasi plan", { stepCount: plan.steps ? plan.steps.length : 0 });
       
       if (eventBus) {
         await eventBus.emit(EVENT_TYPES.PLANNER_DECISION, {

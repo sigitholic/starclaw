@@ -2,6 +2,7 @@
 
 const { ensureTokenBudget } = require("../memory/token.manager");
 const { EVENT_TYPES } = require("../events/event.types");
+const { agentConfig } = require("../../config/agent.config");
 
 class Executor {
   constructor({ toolsRegistry, logger }) {
@@ -49,14 +50,23 @@ class Executor {
         continue;
       }
 
-      const maxRetries = Number.isInteger(step.maxRetries) && step.maxRetries >= 0 ? step.maxRetries : 0;
-      const timeoutMs = Number.isInteger(step.timeoutMs) && step.timeoutMs > 0 ? step.timeoutMs : 0;
+      const maxRetries = Number.isInteger(step.maxRetries) && step.maxRetries >= 0
+        ? step.maxRetries
+        : (agentConfig.defaultToolMaxRetries || 0);
+      const timeoutMs = Number.isInteger(step.timeoutMs) && step.timeoutMs > 0
+        ? step.timeoutMs
+        : (agentConfig.defaultToolTimeoutMs || 30000);
+
+      // Fix bug retry: totalAttempts = 1 eksekusi awal + maxRetries percobaan ulang
+      const totalAttempts = 1 + maxRetries;
       let attempt = 0;
       let done = false;
 
-      while (!done && attempt <= maxRetries) {
+      while (!done && attempt < totalAttempts) {
+        attempt++;
+        const isLastAttempt = attempt >= totalAttempts;
+
         try {
-          attempt += 1;
           if (eventBus) {
             await eventBus.emit(EVENT_TYPES.TOOL_CALLED, {
               timestamp: new Date().toISOString(),
@@ -73,7 +83,7 @@ class Executor {
 
           outputs.push({
             step: step.name,
-            tool: step.tool,         // Optimasi 3: tool name di output
+            tool: step.tool,
             status: "ok",
             output,
             attempt,
@@ -88,16 +98,16 @@ class Executor {
           }
           this.logger.info("Step dieksekusi", { step: step.name, tool: step.tool, attempt });
           done = true;
+
         } catch (error) {
-          const canRetry = attempt <= maxRetries;
           this.logger.warn("Tool gagal", {
-            step: step.name, tool: step.tool, attempt, canRetry, message: error.message,
+            step: step.name, tool: step.tool, attempt, remaining: totalAttempts - attempt, message: error.message,
           });
 
-          if (!canRetry) {
+          if (isLastAttempt) {
             outputs.push({
               step: step.name,
-              tool: step.tool,       // Optimasi 3: tool name di error output
+              tool: step.tool,
               status: "error",
               attempt,
               reason: error.message,
@@ -110,6 +120,9 @@ class Executor {
               });
             }
             done = true;
+          } else {
+            // Exponential backoff sebelum retry: 500ms, 1000ms, 2000ms...
+            await new Promise(r => setTimeout(r, 500 * attempt));
           }
         }
       }

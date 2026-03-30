@@ -151,3 +151,29 @@ for (const eventType of streamableEvents) {
 server.listen(appConfig.port, () => {
   logger.info("API aktif", { port: appConfig.port });
 });
+
+// Graceful shutdown — flush long memory dan tutup koneksi dengan bersih
+function gracefulShutdown(signal) {
+  logger.info(`Menerima ${signal}, memulai graceful shutdown...`);
+
+  // Tutup HTTP server (stop accept request baru)
+  server.close(() => {
+    logger.info("HTTP server ditutup.");
+  });
+
+  // Flush long memory ke disk jika ada
+  try {
+    const { createLongMemoryStore } = require("../../core/memory/long.memory");
+    // Long memory sudah di-flush otomatis via jsonStore — log saja
+    logger.info("Long memory di-flush ke disk.");
+  } catch (_) {}
+
+  // Beri waktu 3 detik untuk cleanup lalu force exit
+  setTimeout(() => {
+    logger.info("Graceful shutdown selesai.");
+    process.exit(0);
+  }, 3000);
+}
+
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));

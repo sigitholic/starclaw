@@ -1,65 +1,85 @@
 "use strict";
 
+const { agentConfig } = require("../../config/agent.config");
+
 /**
- * Workflow Engine dengan Re-Act Loop Sejati.
+ * Workflow Engine dengan Re-Act Loop + Sliding Window Observations.
  *
- * Alur per-iterasi:
- *   1. Think: Planner LLM menerima task + observasi sebelumnya → hasilkan action
- *   2. Act:   Executor menjalankan tool yang dipilih Planner
- *   3. Observe: Hasil tool dikumpulkan ke observationBuffer
- *   4. Loop:  Buffer dikirim ke LLM sebagai konteks di iterasi berikutnya
- *
- * Ini menggantikan loop lama yang buta (tidak ada feedback tool ke LLM).
+ * Perbaikan dari versi sebelumnya:
+ *   1. Observation buffer dibatasi (sliding window) — cegah context explosion
+ *   2. maxIterations dari config (tidak hardcode)
+ *   3. iterationDelay dari config
+ *   4. Token usage tracking per loop
+ *   5. Exit lebih cepat jika tidak ada progress
  */
 function createWorkflowEngine() {
   return {
-    async run(agent, payload, maxIterations = 10) {
+    async run(agent, payload, maxIterationsOverride) {
       if (!agent || typeof agent.run !== "function") {
         throw new Error("Agent tidak valid untuk workflow engine");
       }
+
+      const maxIterations = maxIterationsOverride || agentConfig.maxIterations || 12;
+      const maxObservations = agentConfig.maxObservations || 6;
+      const iterationDelay = agentConfig.iterationDelayMs || 300;
 
       let iteration = 0;
       let lastResult = null;
       let currentPayload = { ...payload };
 
-      // Buffer observasi lintas-iterasi: dikumpulkan dan dikirim ke LLM setiap siklus
+      // Sliding window observation buffer — cegah context explosion di task panjang
       const observationBuffer = [];
+      let totalTokensEstimated = 0;
 
       while (iteration < maxIterations) {
         iteration++;
 
-        // Inject semua observasi sebelumnya agar LLM "tahu" apa yang sudah terjadi
+        // Inject observasi sebagai sliding window (hanya N terakhir)
         if (observationBuffer.length > 0) {
-          currentPayload.observations = observationBuffer.slice(); // snapshot immutable
+          currentPayload.observations = observationBuffer.slice(-maxObservations);
         }
 
         // === THINK & ACT ===
+        const startMs = Date.now();
         lastResult = await agent.run(currentPayload);
+        const iterationMs = Date.now() - startMs;
+
+        // Estimasi token yang dipakai di iterasi ini
+        if (agentConfig.trackTokenUsage && lastResult && lastResult.tokenUsage) {
+          totalTokensEstimated += lastResult.tokenUsage.used || 0;
+        }
 
         // === OBSERVE ===
-        // Kumpulkan hasil tool dari eksekusi ini ke buffer observasi
         if (lastResult && Array.isArray(lastResult.outputs) && lastResult.outputs.length > 0) {
           for (const out of lastResult.outputs) {
+            // Batasi output per observation ke 1500 karakter (lebih hemat dari 2000)
+            const outputStr = out.output
+              ? JSON.stringify(out.output).slice(0, 1500)
+              : out.reason || null;
+
             observationBuffer.push({
               iteration,
               step: out.step,
               tool: out.tool || "unknown",
               status: out.status,
-              // Batasi output ke 2000 karakter agar tidak overflow context LLM
-              output: out.output
-                ? JSON.stringify(out.output).slice(0, 2000)
-                : out.reason || null,
+              output: outputStr,
             });
+          }
+
+          // Sliding window: hapus observation lama jika melebihi batas
+          if (observationBuffer.length > maxObservations * 2) {
+            observationBuffer.splice(0, observationBuffer.length - maxObservations);
           }
         }
 
-        // Jika plan LLM adalah merespon langsung (ngobrol) atau diveto, akhiri loop.
+        // === EXIT CONDITIONS ===
+
+        // 1. LLM memutuskan respond / veto
         if (!lastResult.plan || lastResult.plan.plannerDecision === "respond" || lastResult.success === false) {
           break;
         }
 
-        // Exit condition: jika semua tool outputs di iterasi ini skipped/error,
-        // berarti tidak ada progress → hentikan loop untuk mencegah infinite cycle
+        // 2. Semua tool gagal — tidak ada progress
         const allOutputsFailed = Array.isArray(lastResult.outputs) &&
           lastResult.outputs.length > 0 &&
           lastResult.outputs.every(o => o.status === "skipped" || o.status === "error");
@@ -67,17 +87,34 @@ function createWorkflowEngine() {
           break;
         }
 
-        // Exit juga jika tidak ada outputs sama sekali (plan tidak menghasilkan steps)
+        // 3. Tidak ada output sama sekali
         if (!lastResult.outputs || lastResult.outputs.length === 0) {
           break;
         }
 
-        // Beri jeda kecil antar iterasi
-        await new Promise(resolve => setTimeout(resolve, 500));
+        // 4. Deteksi loop — tool yang sama gagal 2x berturut-turut
+        if (observationBuffer.length >= 2) {
+          const lastTwo = observationBuffer.slice(-2);
+          if (lastTwo[0].tool === lastTwo[1].tool &&
+              lastTwo[0].status === "error" &&
+              lastTwo[1].status === "error") {
+            break;
+          }
+        }
 
-        // Tandai ini adalah iterasi lanjutan (bukan request baru)
+        // Delay antar iterasi (beri waktu LLM bernafas)
+        if (iterationDelay > 0) {
+          await new Promise(resolve => setTimeout(resolve, iterationDelay));
+        }
+
         currentPayload.__isContinuation = true;
         currentPayload.__iterationCount = iteration;
+      }
+
+      // Tambahkan metadata iterasi ke hasil akhir
+      if (lastResult) {
+        lastResult.__iterations = iteration;
+        lastResult.__totalTokensEst = totalTokensEstimated;
       }
 
       return lastResult;
