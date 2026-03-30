@@ -1,42 +1,41 @@
 "use strict";
 
+const { createGenieAcsTool } = require("../../core/tools/genieacs.tool");
+
 /**
- * Plugin: genieacs-monitor
- * Plugin untuk monitoring genieacs
+ * Plugin: GenieACS Monitor
  *
- * Dibuat oleh ClawHub Plugin Generator.
+ * Plugin manajemen perangkat ISP via GenieACS ACS server (TR-069/CWMP).
+ * Plugin ini mendaftarkan genieacs-tool yang sudah lengkap ke agent.
+ *
+ * Konfigurasi (set di .env):
+ *   GENIEACS_URL  — URL ACS server (default: http://localhost:7557)
+ *   GENIEACS_USER — Username (opsional)
+ *   GENIEACS_PASS — Password (opsional)
+ *
+ * Kemampuan:
+ *   - List semua device CPE/ONT yang terdaftar di ACS
+ *   - Get detail info perangkat (IP, firmware, serial, last inform)
+ *   - Reboot, factory reset perangkat via TR-069
+ *   - Set/get parameter (DNS, SSID, password WiFi, dll)
+ *   - Lihat dan clear fault
+ *   - Manage preset provisioning
  */
 module.exports = {
   name: "genieacs-monitor",
-  version: "1.0.0",
-  description: "Plugin untuk monitoring genieacs",
+  version: "2.0.0",
+  description: "Manajemen perangkat CPE/ONT ISP via GenieACS ACS server (TR-069/CWMP). Butuh GENIEACS_URL di .env.",
 
-  tools: [
-    {
-      name: "genieacs-monitor-tool",
-      description: "Tool dari plugin genieacs-monitor",
-      parameters: {
-        type: "object",
-        properties: {
-          action: { type: "string", description: "Action yang ingin dilakukan" },
-          data: { type: "string", description: "Data input (opsional)" },
-        },
-        required: ["action"],
-      },
-      async run(input) {
-        return {
-          success: true,
-          message: `Plugin 'genieacs-monitor' menjalankan action '${input.action}'`,
-          data: input.data || null,
-        };
-      },
-    },
-  ],
+  tools: [createGenieAcsTool()],
 
   workflows: [],
 
   activate(context) {
-    console.log("[Plugin:genieacs-monitor] Diaktifkan!");
+    const url = process.env.GENIEACS_URL || "http://localhost:7557";
+    console.log(`[Plugin:genieacs-monitor] Aktif — ACS URL: ${url}`);
+    if (!process.env.GENIEACS_URL) {
+      console.warn("[Plugin:genieacs-monitor] ⚠️  GENIEACS_URL tidak diset di .env, menggunakan default: http://localhost:7557");
+    }
   },
 
   deactivate() {

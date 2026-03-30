@@ -12,6 +12,10 @@ const { createDoctorTool } = require("./doctor.tool");
 const { createPluginTool } = require("./plugin.tool");
 const { createSubAgentTool } = require("./sub-agent.tool");
 const { createCronTool } = require("./cron.tool");
+const { createGenieAcsTool } = require("./genieacs.tool");
+const { createSocialMediaTool } = require("./social-media.tool");
+const { createNotificationTool } = require("./notification.tool");
+const { createDatabaseTool } = require("./database.tool");
 const { validateToolContract } = require("../utils/validator");
 const { createPluginManager } = require("../plugins/plugin.manager");
 const { createSubAgentManager } = require("../agent/sub-agent.manager");
@@ -63,6 +67,11 @@ function createToolRegistry(customTools = []) {
     createPluginTool(pluginManager),
     createSubAgentTool(subAgentManager),
     createCronTool(cronManager),
+    // Tools baru
+    createGenieAcsTool(),
+    createSocialMediaTool(),
+    createNotificationTool(),
+    createDatabaseTool(),
     ...customTools,
   ];
 

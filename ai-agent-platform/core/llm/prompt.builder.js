@@ -1,5 +1,7 @@
 "use strict";
 
+const { autoLoadSkills } = require("../skills/skill.loader");
+
 function createPromptBuilder() {
   function formatRecentContext(context) {
     if (!context || !Array.isArray(context.recent) || context.recent.length === 0) {
@@ -122,6 +124,13 @@ PANDUAN PENJADWALAN & PENGINGAT:
         parts.push(observationsText);
         parts.push("");
         parts.push("INSTRUKSI: Gunakan observasi di atas untuk memutuskan langkah SELANJUTNYA. Jangan ulangi tool yang sudah berhasil!");
+      }
+
+      // Injeksi skills yang relevan berdasarkan pesan user
+      const agentSkills = input.__agentSkills || [];
+      const skillsText = autoLoadSkills(typeof input.message === "string" ? input.message : "", agentSkills);
+      if (skillsText) {
+        parts.push(skillsText);
       }
 
       parts.push(`User message: ${typeof input.message === "string" ? input.message : ""}`);
