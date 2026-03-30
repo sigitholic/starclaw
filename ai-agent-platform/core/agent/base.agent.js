@@ -9,7 +9,7 @@ const { agentExecutionStore } = require("../orchestrator/agent.execution.store")
 const { createExecutionState, appendTrace } = require("./stateManager");
 const { formatResponse } = require("./formatter");
 const { wrapMemoryForExecution } = require("../memory/memory");
-const { getSessionSnapshot, patchSession } = require("../memory/shortMemory");
+const { getSessionSnapshot, patchSession, memory } = require("../memory/shortMemory");
 
 class BaseAgent {
   constructor({ name, planner, reviewer, executor, memory, logger }) {
@@ -122,6 +122,7 @@ class BaseAgent {
         __agentName: this.name,
         __eventBus: eventBus,
         __shortMemory: getSessionSnapshot(sessionId),
+        __sessionMemory: memory,
       });
 
       plan = applyPlannerSuccessRespondPolicy(plan, loopInput.__lastToolResult);

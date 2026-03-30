@@ -4,17 +4,16 @@ const { normalizePlannerDecision } = require("../utils/validator");
 const { EVENT_TYPES } = require("../events/event.types");
 const { selectRelevantTools, extractPreviousTools, mergePlannerSchemas } = require("./tool.selector");
 const {
-  matchIntentToSkill,
-  plan,
-  coerceForbiddenToolsToSkill,
   extractIP,
   isFollowUpIntent,
+  newPlanner,
 } = require("./intent.skill.match");
 const { modelManager } = require("../llm/modelManager");
 const { detectIntentLLM } = require("../llm/intentEngine");
+const { memory } = require("../memory/shortMemory");
 
 /**
- * Pesan yang membutuhkan planner LLM (tool/skill multi-langkah), bukan short-circuit chat/skill.
+ * Pesan yang membutuhkan jalur terstruktur (audit OpenClaw), bukan short-circuit intent LLM.
  */
 function needsStructuredPlannerMessage(message) {
   const m = String(message || "");
@@ -56,128 +55,42 @@ class Planner {
     return base;
   }
 
-  /** @param {object} input */
+  /**
+   * Fallback rule-based (newPlanner di intent.skill.match) — selaras dengan main, tanpa LLM plan().
+   */
   async _ruleBasedPlanner(input) {
     const eventBus = input && input.__eventBus ? input.__eventBus : null;
     const agentName = input && input.__agentName ? input.__agentName : "unknown-agent";
 
-    const allToolSchemas = this.toolsRegistry ? this.toolsRegistry.getToolSchemas() : [];
-    const skillSchemas =
-      this.skillRegistry && typeof this.skillRegistry.getSkillSchemas === "function"
-        ? this.skillRegistry.getSkillSchemas()
-        : [];
-    const mergedSchemas = mergePlannerSchemas(allToolSchemas, skillSchemas).filter(
-      s => s && s.name !== "shell-tool",
-    );
-
     const message = typeof input.message === "string" ? input.message : "";
-    const previousTools = extractPreviousTools(input.observations || []);
-    const requiredTools = input.__requiredTools || [];
+    const sessionId =
+      (input && typeof input.__sessionId === "string" && input.__sessionId.trim()
+        ? input.__sessionId.trim()
+        : null) ||
+      (input && typeof input.__channelSessionId === "string" && input.__channelSessionId.trim()
+        ? input.__channelSessionId.trim()
+        : "default");
 
-    const selectedSchemas = selectRelevantTools(mergedSchemas, message, {
-      requiredTools,
-      previousTools,
+    const sessionMemory =
+      input && input.__sessionMemory && typeof input.__sessionMemory.get === "function"
+        ? input.__sessionMemory
+        : memory;
+
+    const rule = newPlanner(message, sessionMemory, sessionId, {
+      openclawSnapshot: input && input.openclawSnapshot,
     });
+    const normalizedPlan = normalizePlannerDecision(rule.raw);
 
-    if (selectedSchemas.length < mergedSchemas.length) {
-      this.logger.info("Smart tool selection aktif", {
-        total: mergedSchemas.length,
-        selected: selectedSchemas.length,
-        savedTokensEst: Math.round((mergedSchemas.length - selectedSchemas.length) * 150),
-      });
-    }
+    // eslint-disable-next-line no-console
+    console.log("PLAN:", normalizedPlan);
+    // eslint-disable-next-line no-console
+    console.log("MEMORY:", memory.store);
 
-    const prompt = this.promptBuilder.buildPlanningPrompt(input, selectedSchemas);
-
-    this.logger.debug("Planner model", { model: modelManager.getModel() });
-
-    const canShortCircuitIntent =
-      !input.__isRegenerate && (!input.observations || input.observations.length === 0);
-
-    const shortMemory =
-      input && input.__shortMemory && typeof input.__shortMemory === "object" ? input.__shortMemory : null;
-
-    if (canShortCircuitIntent && this.skillRegistry && !needsStructuredPlannerMessage(message)) {
-      const intent = plan(message, shortMemory);
-      if (intent.type === "chat") {
-        const chatFn = this.llmProvider && typeof this.llmProvider.chat === "function"
-          ? this.llmProvider.chat.bind(this.llmProvider)
-          : null;
-        const reply = chatFn
-          ? await chatFn(intent.message || message)
-          : String(intent.message || message || "");
-        const normalizedPlan = normalizePlannerDecision({
-          action: "respond",
-          response: reply,
-          summary: "Percakapan (bukan perintah skill)",
-        });
-        normalizedPlan.intentType = "chat";
-        // eslint-disable-next-line no-console
-        console.log("PLANNER RESULT:", normalizedPlan);
-        this.logger.info("Planner decision (chat intent)", {
-          decision: normalizedPlan.plannerDecision,
-          intentType: "chat",
-        });
-        if (eventBus) {
-          await eventBus.emit(EVENT_TYPES.PLANNER_DECISION, {
-            timestamp: new Date().toISOString(),
-            agent: agentName,
-            payload: {
-              decision: normalizedPlan.plannerDecision,
-              stepCount: normalizedPlan.steps.length,
-              summary: normalizedPlan.summary,
-              toolsInPrompt: selectedSchemas.length,
-              source: "intent-chat",
-              intentType: "chat",
-            },
-          });
-        }
-        return normalizedPlan;
-      }
-
-      const intentSkill = matchIntentToSkill(message, this.skillRegistry, shortMemory);
-      if (intentSkill) {
-        const normalizedPlan = normalizePlannerDecision(intentSkill);
-        normalizedPlan.intentType = "skill";
-        // eslint-disable-next-line no-console
-        console.log("PLANNER RESULT:", normalizedPlan);
-        this.logger.info("Planner decision (skill intent deterministik)", {
-          decision: normalizedPlan.plannerDecision,
-          skill: normalizedPlan.steps[0]?.tool,
-        });
-        if (eventBus) {
-          await eventBus.emit(EVENT_TYPES.PLANNER_DECISION, {
-            timestamp: new Date().toISOString(),
-            agent: agentName,
-            payload: {
-              decision: normalizedPlan.plannerDecision,
-              stepCount: normalizedPlan.steps.length,
-              summary: normalizedPlan.summary,
-              toolsInPrompt: selectedSchemas.length,
-              source: "intent-skill-match",
-              intentType: "skill",
-            },
-          });
-        }
-        return normalizedPlan;
-      }
-    }
-
-    const rawDecision = await this.llmProvider.plan(prompt, input);
-    const coerced = coerceForbiddenToolsToSkill(
-      rawDecision,
-      message,
-      this.skillRegistry,
-      input.__shortMemory,
-    );
-    const normalizedPlan = normalizePlannerDecision(coerced);
-
-    this.logger.info("Planner decision", {
+    this.logger.info("Planner decision (rule-based)", {
       decision: normalizedPlan.plannerDecision,
       stepCount: normalizedPlan.steps.length,
+      intentType: rule.intent && rule.intent.type,
     });
-    // eslint-disable-next-line no-console
-    console.log("PLANNER RESULT:", normalizedPlan);
 
     if (eventBus) {
       await eventBus.emit(EVENT_TYPES.PLANNER_DECISION, {
@@ -187,7 +100,8 @@ class Planner {
           decision: normalizedPlan.plannerDecision,
           stepCount: normalizedPlan.steps.length,
           summary: normalizedPlan.summary,
-          toolsInPrompt: selectedSchemas.length,
+          source: "rule-based-planner",
+          intentType: rule.intent && rule.intent.type,
         },
       });
     }
@@ -230,14 +144,42 @@ class Planner {
     const canShortCircuitIntent =
       !input.__isRegenerate && (!input.observations || input.observations.length === 0);
 
-    const shortMemory =
-      input && input.__shortMemory && typeof input.__shortMemory === "object" ? input.__shortMemory : null;
+    const sessionId =
+      (input && typeof input.__sessionId === "string" && input.__sessionId.trim()
+        ? input.__sessionId.trim()
+        : null) ||
+      (input && typeof input.__channelSessionId === "string" && input.__channelSessionId.trim()
+        ? input.__channelSessionId.trim()
+        : "default");
 
-    if (canShortCircuitIntent && this.skillRegistry && !needsStructuredPlannerMessage(message)) {
+    const sessionMemory =
+      input && input.__sessionMemory && typeof input.__sessionMemory.get === "function"
+        ? input.__sessionMemory
+        : memory;
+
+    const sessionRecord =
+      sessionMemory && typeof sessionMemory.get === "function"
+        ? sessionMemory.get(sessionId)
+        : {};
+
+    const shortMemory =
+      sessionRecord && typeof sessionRecord === "object" ? sessionRecord : {};
+
+    const hasOpenclawSnap =
+      input.openclawSnapshot &&
+      typeof input.openclawSnapshot === "object" &&
+      Object.keys(input.openclawSnapshot).length > 0;
+
+    if (
+      canShortCircuitIntent &&
+      this.skillRegistry &&
+      !needsStructuredPlannerMessage(message) &&
+      !hasOpenclawSnap
+    ) {
       let llmIntent = null;
       try {
         llmIntent = await detectIntentLLM(message, {
-          lastPingTarget: shortMemory && shortMemory.lastPingTarget,
+          lastPingTarget: memory.get(sessionId, "lastPingTarget"),
         });
       } catch (_e) {
         llmIntent = null;
