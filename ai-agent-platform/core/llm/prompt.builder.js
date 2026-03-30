@@ -57,44 +57,31 @@ function createPromptBuilder() {
       const toolNameList = toolSchemas.map(t => `"${t.name}"`).join(", ");
 
       const instructions = `
-PERHATIAN KRITIS: Anda HARUS SELALU merespon dalam format JSON murni yang solid (tanpa rintisan atau backticks code block lainnya).
+OUTPUT WAJIB: JSON murni, tanpa teks tambahan, tanpa markdown code block.
 
-ATURAN TOOL SELECTION — WAJIB DIPATUHI:
-- Field "tool_name" HARUS menggunakan nama EKSAK dari daftar [AVAILABLE TOOLS] di bawah
-- DILARANG mengarang nama tool yang tidak ada di daftar
-- DILARANG menggunakan nama parsial (contoh: "genieacs" → SALAH, harus "genieacs-tool")
-- Nama tool yang valid saat ini: [${toolNameList}]
+═══ ATURAN TOOL (WAJIB DIPATUHI) ═══
+1. Field "tool_name" HARUS nama EKSAK dari daftar [AVAILABLE TOOLS] di bawah
+2. DILARANG mengarang nama tool yang tidak ada di daftar
+3. DILARANG menggunakan nama parsial: "genieacs" SALAH → "genieacs-tool" BENAR
+4. DILARANG membuat step tanpa field "tool_name"
+5. Tool yang valid: [${toolNameList}]
 
-Format Output JSON yang diperbolehkan hanyalah salah satu dari berikut:
+═══ FORMAT OUTPUT (pilih SATU) ═══
 
-PILIHAN A (Jika butuh eksekusi 1 Tool untuk melangkah/menyelesaikan permintaan user):
-{
-  "action": "tool",
-  "tool_name": "<nama_eksak_dari_daftar_AVAILABLE_TOOLS>",
-  "step_name": "<deskripsi_singkat_langkah>",
-  "input": { <parameter_sesuai_schema_tool_terpilih> },
-  "summary": "Saya sedang berupaya menjalankan tool ..."
-}
+▸ FORMAT A — Eksekusi 1 tool:
+{ "action": "tool", "tool_name": "<nama_eksak_tool>", "step_name": "<deskripsi>", "input": { <params> }, "summary": "..." }
 
-PILIHAN B (HANYA GUNAKAN INI JIKA SELURUH TUGAS SUDAH SELESAI 100%):
-{
-  "action": "respond",
-  "response": "<teks_laporan_akhir_ke_user>",
-  "summary": "Tugas telah selesai"
-}
+▸ FORMAT B — Eksekusi BEBERAPA tool berurutan:
+{ "action": "multi-tool", "steps": [ { "action": "tool", "tool_name": "<tool_1>", "input": {} }, { "action": "tool", "tool_name": "<tool_2>", "input": {} } ], "summary": "..." }
 
-PILIHAN C (Jika butuh eksekusi BEBERAPA Tool sekaligus secara berurutan):
-{
-  "action": "multi-tool",
-  "steps": [
-    { "tool_name": "<tool_1>", "step_name": "langkah 1", "input": { ... } },
-    { "tool_name": "<tool_2>", "step_name": "langkah 2", "input": { ... } }
-  ],
-  "summary": "Merencanakan beberapa langkah sekaligus..."
-}
-Gunakan PILIHAN C saat Anda yakin langkah-langkah pasti berhasil dan menghemat iterasi.
+▸ FORMAT C — Respond langsung (HANYA jika tugas 100% selesai):
+{ "action": "respond", "response": "<teks jawaban final>", "summary": "Tugas selesai" }
 
-ATURAN MUTLAK: Sistem akan MEMATIKAN loop eksekusi jika Anda memilih PILIHAN B ('respond'). DILARANG KERAS menggunakan 'respond' untuk sekadar menjawab "Saya sedang mengerjakan...". Jika masih ada tugas, Anda WAJIB menggunakan PILIHAN A atau C.
+▸ FORMAT D — Plan terstruktur (untuk instruksi kompleks):
+{ "type": "plan", "steps": [ { "action": "tool", "tool": "<nama_eksak_tool>", "input": {} }, { "action": "tool", "tool": "<nama_eksak_tool>", "input": {} } ] }
+
+LARANGAN KERAS: Jangan gunakan FORMAT C untuk menjawab "sedang mengerjakan". Jika masih ada tool yang harus dijalankan, WAJIB gunakan FORMAT A, B, atau D.
+LARANGAN KERAS: Setiap step dalam FORMAT B dan D HARUS punya field "tool_name" atau "tool".
 
 PANDUAN MENGGUNAKAN OBSERVASI:
 - Jika ada section [OBSERVATIONS] di bawah, itu adalah hasil eksekusi tool dari langkah sebelumnya.
