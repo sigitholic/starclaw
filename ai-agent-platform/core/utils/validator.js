@@ -117,7 +117,10 @@ function normalizeStep(step, index) {
 // FORMAT 1 — action: "respond"
 //   { "action": "respond", "response": "...", "summary": "..." }
 //
-// FORMAT 2 — action: "tool" (1 step)
+// FORMAT 2a — action: "skill" (1 step, skill layer)
+//   { "action": "skill", "skill_name": "...", "input": {}, "summary": "..." } → plannerDecision: "skill"
+//
+// FORMAT 2b — action: "tool" (1 step)
 //   { "action": "tool", "tool_name": "...", "input": {}, "summary": "..." }
 //
 // FORMAT 3 — action: "multi-tool" (beberapa step)
@@ -134,7 +137,8 @@ function normalizeStep(step, index) {
 
 function applyPlannerSuccessRespondPolicy(plan, lastToolResult) {
   if (!plan || !isPlainObject(plan)) return plan;
-  if (plan.plannerDecision !== "tool" || !Array.isArray(plan.steps)) return plan;
+  const execDecisions = plan.plannerDecision === "tool" || plan.plannerDecision === "skill";
+  if (!execDecisions || !Array.isArray(plan.steps)) return plan;
   const last = lastToolResult && typeof lastToolResult === "object" ? lastToolResult : null;
   if (!last || last.success !== true) return plan;
 
@@ -199,7 +203,7 @@ function normalizePlannerDecision(rawDecision) {
       gaps: [],
       recommendations: [],
       finalResponse: typeof rawDecision.response === "string" ? rawDecision.response : null,
-      plannerDecision: "tool",
+      plannerDecision: "skill",
     };
   }
 
