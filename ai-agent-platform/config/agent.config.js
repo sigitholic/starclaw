@@ -31,8 +31,8 @@ const agentConfig = {
   // ============================================================
   // Workflow Engine
   // ============================================================
-  // Maksimal iterasi Re-Act loop per task
-  maxIterations: 12,
+  // Maksimal iterasi Re-Act loop per task (selaras dengan batas langkah eksekusi)
+  maxIterations: 5,
 
   // Guard batas atas langkah eksekusi (plan → tool → observe) — cegah loop tak terbatas
   maxExecutionSteps: 5,

@@ -1,8 +1,10 @@
 "use strict";
 
+const crypto = require("crypto");
 const { agentConfig } = require("../../config/agent.config");
 const { EVENT_TYPES } = require("../events/event.types");
 const { modelManager } = require("../llm/modelManager");
+const { agentExecutionStore } = require("../orchestrator/agent.execution.store");
 
 class BaseAgent {
   constructor({ name, planner, reviewer, executor, memory, logger }) {
@@ -19,6 +21,27 @@ class BaseAgent {
     const cleanInput = input && typeof input === "object" ? { ...input } : {};
     if (cleanInput.__eventBus) {
       delete cleanInput.__eventBus;
+    }
+
+    const runId =
+      typeof cleanInput.__runId === "string" && cleanInput.__runId
+        ? cleanInput.__runId
+        : `run-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
+
+    const routing = modelManager.applyModelRouting(cleanInput);
+    const storeEntry = agentExecutionStore.getOrCreate(this.name, runId);
+    agentExecutionStore.setExecutionState(this.name, runId, {
+      ...storeEntry.executionState,
+      status: "running",
+      currentStep: typeof cleanInput.__stepCount === "number" ? cleanInput.__stepCount : 1,
+      maxSteps: agentConfig.maxExecutionSteps || 5,
+      goalReached: false,
+      terminatedReason: null,
+      modelId: routing.modelId,
+      routingMode: routing.routingMode,
+    });
+    if (!cleanInput.__isContinuation) {
+      agentExecutionStore.patch(this.name, runId, { trace: [], stepHistory: [] });
     }
 
     if (eventBus) {
@@ -47,6 +70,13 @@ class BaseAgent {
         executionTimeMs: 0,
         trace: Array.isArray(cleanInput.__executionTrace) ? cleanInput.__executionTrace : [],
       };
+      agentExecutionStore.setExecutionState(this.name, runId, {
+        ...agentExecutionStore.get(this.name, runId).executionState,
+        status: "terminated",
+        goalReached: false,
+        terminatedReason: "max_steps",
+      });
+      agentExecutionStore.patch(this.name, runId, { trace: errResult.trace });
       this.memory.short.remember({
         agent: this.name,
         userMessage: typeof cleanInput.message === "string" ? cleanInput.message : JSON.stringify(cleanInput),
@@ -54,16 +84,22 @@ class BaseAgent {
         input: cleanInput,
         execution: errResult,
       });
+      modelManager.restoreModel(routing.previousModel);
       if (eventBus) {
         await eventBus.emit(EVENT_TYPES.AGENT_FINISHED, {
           timestamp: new Date().toISOString(),
           agent: this.name,
-          payload: { summary: msg, finalResponse: msg, score: 0 },
+          payload: { summary: msg, finalResponse: msg, score: 0, action: "respond", runId },
         });
       }
       return {
         agent: this.name,
         plan: { plannerDecision: "respond", steps: [], summary: msg },
+        action: "respond",
+        message: msg,
+        __runId: runId,
+        __modelId: routing.modelId,
+        __routingMode: routing.routingMode,
         ...errResult,
       };
     }
@@ -130,45 +166,110 @@ class BaseAgent {
           execution: vetoExecution,
         });
 
+        agentExecutionStore.setExecutionState(this.name, runId, {
+          ...agentExecutionStore.get(this.name, runId).executionState,
+          status: "done",
+          goalReached: false,
+          terminatedReason: "reviewer_veto",
+        });
+        modelManager.restoreModel(routing.previousModel);
         if (eventBus) {
           await eventBus.emit(EVENT_TYPES.AGENT_FINISHED, {
             timestamp: new Date().toISOString(),
             agent: this.name,
-            payload: vetoExecution,
+            payload: { ...vetoExecution, action: "respond", runId },
           });
         }
 
-        return { agent: this.name, plan, ...vetoExecution };
+        return {
+          agent: this.name,
+          plan,
+          action: "respond",
+          message: vetoExecution.finalResponse,
+          __runId: runId,
+          __modelId: routing.modelId,
+          __routingMode: routing.routingMode,
+          ...vetoExecution,
+        };
       }
       this.logger.info("Reviewer menyetujui plan", { reason: review.reason });
     }
 
     const execution = await this.executor.execute(plan, {
       ...cleanInput,
+      __runId: runId,
       __agentName: this.name,
       __eventBus: eventBus,
       __executionTrace: cleanInput.__executionTrace,
       __completedToolKeys: cleanInput.__completedToolKeys,
+      __agentExecution: {
+        runId,
+        onToolComplete: ({ stepOrdinal, tool, normalized }) => {
+          agentExecutionStore.appendStepHistory(this.name, runId, {
+            step: stepOrdinal,
+            tool,
+            result: normalized,
+          });
+          agentExecutionStore.setLastToolResult(this.name, runId, normalized);
+          agentExecutionStore.setExecutionState(this.name, runId, {
+            ...agentExecutionStore.get(this.name, runId).executionState,
+            currentStep: stepOrdinal,
+          });
+        },
+      },
     });
 
     if (typeof this.memory.short.addToolResult === "function" && Array.isArray(execution.outputs)) {
       for (const out of execution.outputs) {
-        if (out.status === "ok" && out.output !== undefined) {
+        if (out.output !== undefined && out.tool !== "__respond__") {
           this.memory.short.addToolResult({
             name: out.tool || "tool",
-            content: JSON.stringify(out.output),
+            content: JSON.stringify({
+              status: out.status,
+              output: out.output,
+              reason: out.reason,
+            }),
           });
         }
       }
     }
 
+    const goalReached =
+      plan.plannerDecision === "respond" ||
+      Boolean(execution.finalResponse && String(execution.finalResponse).trim() !== "");
+
+    const envelope = {
+      action: "respond",
+      message: execution.finalResponse || execution.summary || "",
+      runId,
+      modelId: routing.modelId,
+      routingMode: routing.routingMode,
+    };
+
+    agentExecutionStore.setExecutionState(this.name, runId, {
+      ...agentExecutionStore.get(this.name, runId).executionState,
+      status: "done",
+      goalReached,
+      terminatedReason: goalReached ? "goal_reached" : "completed",
+    });
+    const prevSnap = agentExecutionStore.get(this.name, runId);
+    const mergedTrace = [
+      ...(prevSnap && Array.isArray(prevSnap.trace) ? prevSnap.trace : []),
+      ...(execution.trace || []),
+    ];
+    agentExecutionStore.patch(this.name, runId, {
+      trace: mergedTrace,
+    });
+
     this.memory.short.remember({
       agent: this.name,
       userMessage: typeof cleanInput.message === "string" ? cleanInput.message : JSON.stringify(cleanInput),
-      agentMessage: execution.finalResponse || execution.summary,
+      agentMessage: envelope.message,
       input: cleanInput,
       execution,
     });
+
+    modelManager.restoreModel(routing.previousModel);
 
     if (eventBus) {
       await eventBus.emit(EVENT_TYPES.AGENT_FINISHED, {
@@ -176,8 +277,10 @@ class BaseAgent {
         agent: this.name,
         payload: {
           summary: execution.summary,
-          finalResponse: execution.finalResponse,
+          finalResponse: envelope.message,
           score: execution.score,
+          action: envelope.action,
+          runId,
         },
       });
     }
@@ -186,6 +289,11 @@ class BaseAgent {
       agent: this.name,
       plan,
       ...execution,
+      action: envelope.action,
+      message: envelope.message,
+      __runId: runId,
+      __modelId: routing.modelId,
+      __routingMode: routing.routingMode,
       __executionTrace: execution.trace || [],
       __completedToolKeys: execution.completedToolKeys || [],
     };
