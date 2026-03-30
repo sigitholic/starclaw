@@ -1,6 +1,6 @@
 "use strict";
 
-const { normalizeToolResult } = require("../ai-agent-platform/core/llm/modelRouter");
+const { normalizeToolResult, mergeToolLines } = require("./skill-result.helper");
 
 function bridgePayload(o) {
   const base = {
@@ -58,10 +58,9 @@ module.exports = {
       bridgeOut = normalizeToolResult(await tools["mt5-bridge-tool"].run(bIn));
     }
 
-    const ok = bridgeOut.success !== false && mqlOut.success !== false;
-    return {
-      success: ok,
-      data: { mt5Bridge: bridgeOut, mql5: mqlOut },
-    };
+    return mergeToolLines([
+      { key: "MT5 bridge", normalized: bridgeOut },
+      { key: "MQL5", normalized: mqlOut },
+    ]);
   },
 };

@@ -1,6 +1,6 @@
 "use strict";
 
-const { normalizeToolResult } = require("../ai-agent-platform/core/llm/modelRouter");
+const { normalizeToolResult, fromNormalizedTool } = require("./skill-result.helper");
 
 module.exports = {
   name: "run-system-command",
@@ -12,10 +12,6 @@ module.exports = {
       command: o.command || o.cmd || "pwd",
     };
     const raw = await tools["shell-tool"].run(toolInput);
-    const normalized = normalizeToolResult(raw);
-    return {
-      success: normalized.success !== false,
-      data: normalized,
-    };
+    return fromNormalizedTool(normalizeToolResult(raw));
   },
 };

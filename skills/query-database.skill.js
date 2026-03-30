@@ -1,6 +1,6 @@
 "use strict";
 
-const { normalizeToolResult } = require("../ai-agent-platform/core/llm/modelRouter");
+const { normalizeToolResult, fromNormalizedTool } = require("./skill-result.helper");
 
 module.exports = {
   name: "query-database",
@@ -19,10 +19,6 @@ module.exports = {
       ...(o.params != null ? { params: o.params } : {}),
     };
     const raw = await tools["database-tool"].run(toolInput);
-    const normalized = normalizeToolResult(raw);
-    return {
-      success: normalized.success !== false,
-      data: normalized,
-    };
+    return fromNormalizedTool(normalizeToolResult(raw));
   },
 };

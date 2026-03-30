@@ -1,6 +1,6 @@
 "use strict";
 
-const { normalizeToolResult } = require("../ai-agent-platform/core/llm/modelRouter");
+const { normalizeToolResult, fromNormalizedTool } = require("./skill-result.helper");
 
 module.exports = {
   name: "monitor-market",
@@ -18,10 +18,6 @@ module.exports = {
       ...(o.indicators != null ? { indicators: o.indicators } : {}),
     };
     const raw = await tools["market-data-tool"].run(toolInput);
-    const normalized = normalizeToolResult(raw);
-    return {
-      success: normalized.success !== false,
-      data: normalized,
-    };
+    return fromNormalizedTool(normalizeToolResult(raw));
   },
 };

@@ -1,6 +1,6 @@
 "use strict";
 
-const { normalizeToolResult } = require("../ai-agent-platform/core/llm/modelRouter");
+const { normalizeToolResult, fromNormalizedTool } = require("./skill-result.helper");
 
 module.exports = {
   name: "schedule-task",
@@ -19,10 +19,6 @@ module.exports = {
       ...(o.__chatId != null ? { __chatId: o.__chatId } : {}),
     };
     const raw = await tools["cron-tool"].run(toolInput);
-    const normalized = normalizeToolResult(raw);
-    return {
-      success: normalized.success !== false,
-      data: normalized,
-    };
+    return fromNormalizedTool(normalizeToolResult(raw));
   },
 };

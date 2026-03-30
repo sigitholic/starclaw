@@ -1,6 +1,6 @@
 "use strict";
 
-const { normalizeToolResult } = require("../ai-agent-platform/core/llm/modelRouter");
+const { normalizeToolResult, fromNormalizedTool } = require("./skill-result.helper");
 
 module.exports = {
   name: "run-sub-agent",
@@ -16,10 +16,6 @@ module.exports = {
       ...(o.childId != null ? { childId: o.childId } : {}),
     };
     const raw = await tools["sub-agent-tool"].run(toolInput);
-    const normalized = normalizeToolResult(raw);
-    return {
-      success: normalized.success !== false,
-      data: normalized,
-    };
+    return fromNormalizedTool(normalizeToolResult(raw));
   },
 };
