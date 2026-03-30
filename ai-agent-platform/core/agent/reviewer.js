@@ -1,5 +1,74 @@
 "use strict";
 
+const SAFE_SKILL_SHELL_COMMANDS = ["ping"];
+
+/**
+ * Evaluasi eksekusi shell-tool: skill dengan perintah aman → izinkan;
+ * tanpa meta.skill → blokir eksekusi langsung; selain itu serahkan ke Reviewer LLM.
+ */
+function reviewShellToolExecution(input) {
+  // eslint-disable-next-line no-console
+  console.log("REVIEWER CHECK:", input);
+
+  if (!input.meta || input.meta.source !== "skill") {
+    return {
+      allow: false,
+      reason: "Direct command execution not allowed",
+    };
+  }
+
+  if (input.meta.skillName === "run-system-command") {
+    const cmd = String(input.command || "");
+    if (SAFE_SKILL_SHELL_COMMANDS.some((token) => cmd.includes(token))) {
+      return { allow: true };
+    }
+  }
+
+  return null;
+}
+
+function buildReviewerInputForSkillStep(step) {
+  const o = step && step.input && typeof step.input === "object" ? step.input : {};
+  const target = typeof o.target === "string" ? o.target.trim() : "";
+  const explicit = o.command || o.cmd;
+  let command;
+  if (explicit) {
+    command = explicit;
+  } else if (target) {
+    command = `ping -c 4 ${target}`;
+  } else {
+    command = "pwd";
+  }
+  return {
+    command,
+    meta: {
+      source: "skill",
+      skillName: "run-system-command",
+    },
+  };
+}
+
+function buildReviewerInputForDirectShellStep(step) {
+  const o = step && step.input && typeof step.input === "object" ? step.input : {};
+  return {
+    command: o.command || o.cmd || "",
+    meta: o.meta,
+  };
+}
+
+/**
+ * Apakah plan memuat langkah yang pada akhirnya memanggil shell-tool (skill atau langsung).
+ */
+function planTouchesShellTool(plan) {
+  const steps = Array.isArray(plan && plan.steps) ? plan.steps : [];
+  return steps.some((s) => {
+    if (!s) return false;
+    if (s.isSkill && s.tool === "run-system-command") return true;
+    if (!s.isSkill && s.tool === "shell-tool") return true;
+    return false;
+  });
+}
+
 class Reviewer {
   constructor({ llmProvider, logger }) {
     this.llmProvider = llmProvider;
@@ -7,8 +76,13 @@ class Reviewer {
   }
 
   async reviewPlan(plan, input) {
+    const shellDecision = this.evaluateShellStepsInPlan(plan);
+    if (shellDecision) {
+      return shellDecision;
+    }
+
     const prompt = this.buildReviewPrompt(plan, input);
-    
+
     try {
       // Gunakan method review() yang memiliki schema terpisah dari plan()
       // Ini mencegah conflict dengan normalizePlannerDecision yang hanya kenal action: respond/tool
@@ -26,6 +100,72 @@ class Reviewer {
       this.logger.warn("Reviewer agent gagal mengevaluasi, default ke reject demi keamanan", { error: e.message });
       return { approved: false, reason: "Reviewer error: " + e.message, suggestedChanges: [] };
     }
+  }
+
+  /**
+   * Pre-flight untuk shell: blokir shell-tool tanpa konteks skill; izinkan skill+ping; lainnya → LLM.
+   */
+  evaluateShellStepsInPlan(plan) {
+    if (!planTouchesShellTool(plan)) {
+      return null;
+    }
+
+    const steps = Array.isArray(plan.steps) ? plan.steps : [];
+    let needsLlm = false;
+
+    for (const step of steps) {
+      if (!step) continue;
+
+      if (step.isSkill && step.tool === "run-system-command") {
+        const shellInput = buildReviewerInputForSkillStep(step);
+        const local = reviewShellToolExecution(shellInput);
+        if (local && local.allow === false) {
+          return {
+            approved: false,
+            reason: local.reason || "Direct command execution not allowed",
+            suggestedChanges: [],
+          };
+        }
+        if (local && local.allow === true) {
+          continue;
+        }
+        needsLlm = true;
+        continue;
+      }
+
+      if (!step.isSkill && step.tool === "shell-tool") {
+        const shellInput = buildReviewerInputForDirectShellStep(step);
+        const local = reviewShellToolExecution(shellInput);
+        if (local && local.allow === false) {
+          return {
+            approved: false,
+            reason: local.reason || "Direct command execution not allowed",
+            suggestedChanges: [],
+          };
+        }
+        if (local && local.allow === true) {
+          continue;
+        }
+        needsLlm = true;
+      }
+    }
+
+    const nonShellSteps = steps.filter((s) => {
+      if (!s) return false;
+      if (s.isSkill && s.tool === "run-system-command") return false;
+      if (!s.isSkill && s.tool === "shell-tool") return false;
+      return true;
+    });
+
+    if (!needsLlm && nonShellSteps.length === 0) {
+      return {
+        approved: true,
+        reason: "Diizinkan: perintah shell dari skill terpercaya (validasi aman)",
+        suggestedChanges: [],
+      };
+    }
+
+    return null;
   }
 
   buildReviewPrompt(plan, input) {
@@ -58,4 +198,8 @@ class Reviewer {
   }
 }
 
-module.exports = { Reviewer };
+module.exports = {
+  Reviewer,
+  reviewShellToolExecution,
+  planTouchesShellTool,
+};
