@@ -41,7 +41,7 @@ class Planner {
 
     const prompt = this.promptBuilder.buildPlanningPrompt(input, selectedSchemas);
 
-    console.log("MODEL:", modelManager.getModel());
+    this.logger.debug("Planner model", { model: modelManager.getModel() });
 
     const rawDecision = await this.llmProvider.plan(prompt, input);
     const normalizedPlan = normalizePlannerDecision(rawDecision);

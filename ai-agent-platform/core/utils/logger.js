@@ -7,6 +7,11 @@ function createLogger(scope = "app") {
   };
 
   return {
+    debug(message, payload) {
+      if (process.env.DEBUG || process.env.LOG_LEVEL === "debug") {
+        console.log(format("DEBUG", message, payload));
+      }
+    },
     info(message, payload) {
       console.log(format("INFO", message, payload));
     },

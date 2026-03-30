@@ -6,6 +6,9 @@ const { applyPlannerSuccessRespondPolicy } = require("../utils/validator");
 const { EVENT_TYPES } = require("../events/event.types");
 const { modelManager } = require("../llm/modelManager");
 const { agentExecutionStore } = require("../orchestrator/agent.execution.store");
+const { createExecutionState, appendTrace } = require("./stateManager");
+const { formatResponse } = require("./formatter");
+const { wrapMemoryForExecution } = require("../memory/memory");
 
 class BaseAgent {
   constructor({ name, planner, reviewer, executor, memory, logger }) {
@@ -56,198 +59,324 @@ class BaseAgent {
     this.logger.info("Agent menerima input", { agent: this.name });
 
     const maxSteps = agentConfig.maxExecutionSteps || 5;
-    const stepCount = typeof cleanInput.__stepCount === "number" ? cleanInput.__stepCount : 1;
-    if (stepCount > maxSteps) {
-      const msg = "Execution stopped: too many steps (possible loop)";
-      this.logger.warn(msg, { stepCount, maxSteps });
-      const errResult = {
-        score: 0,
-        outputs: [],
-        summary: msg,
-        gaps: [],
-        recommendations: [],
-        finalResponse: msg,
-        tokenUsage: { used: 0, budget: agentConfig.defaultTokenBudget || 4000, withinBudget: true },
-        executionTimeMs: 0,
-        trace: Array.isArray(cleanInput.__executionTrace) ? cleanInput.__executionTrace : [],
-      };
-      agentExecutionStore.setExecutionState(this.name, runId, {
-        ...agentExecutionStore.get(this.name, runId).executionState,
-        status: "terminated",
-        goalReached: false,
-        terminatedReason: "max_steps",
+    const initialStepCount = typeof cleanInput.__stepCount === "number" ? cleanInput.__stepCount : 1;
+    if (initialStepCount > maxSteps) {
+      return await this._terminateMaxStepsEarly({
+        cleanInput,
+        runId,
+        routing,
+        eventBus,
+        msg: "Execution stopped: too many steps (possible loop)",
       });
-      agentExecutionStore.patch(this.name, runId, { trace: errResult.trace });
-      this.memory.short.remember({
-        agent: this.name,
-        userMessage: typeof cleanInput.message === "string" ? cleanInput.message : JSON.stringify(cleanInput),
-        agentMessage: msg,
-        input: cleanInput,
-        execution: errResult,
-      });
-      modelManager.restoreModel(routing.previousModel);
-      if (eventBus) {
-        await eventBus.emit(EVENT_TYPES.AGENT_FINISHED, {
-          timestamp: new Date().toISOString(),
+    }
+
+    this.logger.debug("Model aktif", { model: modelManager.getModel() });
+
+    const memoryApi = wrapMemoryForExecution(this.memory);
+    const execState = createExecutionState({ maxSteps });
+    if (cleanInput.__executionState && Array.isArray(cleanInput.__executionState.history)) {
+      execState.history = [...cleanInput.__executionState.history];
+    }
+
+    let loopInput = { ...cleanInput };
+    let lastExecution = null;
+    let lastPlan = null;
+
+    while (!execState.isCompleted && execState.stepCount < execState.maxSteps) {
+      const plannerContext = typeof this.memory.short.buildPlannerContextAsync === "function"
+        ? await this.memory.short.buildPlannerContextAsync({
+            maxTokens: agentConfig.defaultTokenBudget,
+            keepRecent: agentConfig.plannerRecentWindow,
+          })
+        : this.memory.short.buildPlannerContext({
+            maxTokens: agentConfig.defaultTokenBudget,
+            keepRecent: agentConfig.plannerRecentWindow,
+          });
+
+      if (plannerContext.didSummarize) {
+        this.logger.info("Summarization terjadi karena context limit", {
           agent: this.name,
-          payload: { summary: msg, finalResponse: msg, score: 0, action: "respond", runId },
+          tokenUsage: plannerContext.tokenUsage,
+          fullHistoryUsage: plannerContext.fullHistoryUsage,
+          method: agentConfig.useLLMSummarizer ? "llm" : "rule-based",
         });
       }
+
+      let plan = await this.planner.createPlan({
+        ...loopInput,
+        __stepCount: execState.stepCount + 1,
+        context: plannerContext,
+        __agentName: this.name,
+        __eventBus: eventBus,
+      });
+
+      plan = applyPlannerSuccessRespondPolicy(plan, loopInput.__lastToolResult);
+
+      if (this.reviewer && plan.plannerDecision === "tool") {
+        this.logger.info("Meminta Reviewer Agent untuk mengevaluasi plan", {
+          stepCount: plan.steps ? plan.steps.length : 0,
+        });
+
+        if (eventBus) {
+          await eventBus.emit(EVENT_TYPES.PLANNER_DECISION, {
+            timestamp: new Date().toISOString(),
+            agent: `${this.name}-reviewer`,
+            payload: { summary: "Mengevaluasi keamanan instruksi..." },
+          });
+        }
+
+        const review = await this.reviewer.reviewPlan(plan, loopInput);
+
+        if (!review.approved) {
+          this.logger.warn("Agent Veto: Rencana ditolak oleh Reviewer", { reason: review.reason });
+          const vetoExecution = {
+            success: false,
+            summary: "Instruksi diveto oleh Reviewer Agent: " + review.reason,
+            finalResponse: "Sistem Keamanan Starclaw (Reviewer) mencegah saya melakukan tindakan ini. Alasan: " + review.reason,
+            score: 0,
+            gaps: Array.isArray(plan.gaps) ? plan.gaps : [],
+            recommendations: Array.isArray(plan.recommendations) ? plan.recommendations : [],
+          };
+
+          const userMessage = formatResponse({
+            success: false,
+            message: vetoExecution.finalResponse,
+          });
+
+          this.memory.short.remember({
+            agent: this.name,
+            userMessage: typeof loopInput.message === "string" ? loopInput.message : JSON.stringify(loopInput),
+            agentMessage: userMessage,
+            input: loopInput,
+            execution: vetoExecution,
+          });
+
+          agentExecutionStore.setExecutionState(this.name, runId, {
+            ...agentExecutionStore.get(this.name, runId).executionState,
+            status: "done",
+            goalReached: false,
+            terminatedReason: "reviewer_veto",
+          });
+          modelManager.restoreModel(routing.previousModel);
+          if (eventBus) {
+            await eventBus.emit(EVENT_TYPES.AGENT_FINISHED, {
+              timestamp: new Date().toISOString(),
+              agent: this.name,
+              payload: { ...vetoExecution, action: "respond", runId },
+            });
+          }
+
+          return {
+            agent: this.name,
+            plan,
+            action: "respond",
+            message: userMessage,
+            __runId: runId,
+            __modelId: routing.modelId,
+            __routingMode: routing.routingMode,
+            ...vetoExecution,
+            finalResponse: userMessage,
+          };
+        }
+        this.logger.info("Reviewer menyetujui plan", { reason: review.reason });
+      }
+
+      if (plan.plannerDecision === "respond") {
+        execState.isCompleted = true;
+        const rawMsg = plan.finalResponse != null ? String(plan.finalResponse) : "";
+        const userMessage = formatResponse(rawMsg || execState.lastResult);
+        lastPlan = plan;
+        lastExecution = {
+          score: typeof plan.baseScore === "number" ? plan.baseScore : 0,
+          outputs: [],
+          summary: plan.summary || "Respons langsung",
+          gaps: plan.gaps || [],
+          recommendations: plan.recommendations || [],
+          finalResponse: userMessage,
+          tokenUsage: { used: 0, budget: agentConfig.defaultTokenBudget || 4000, withinBudget: true },
+          executionTimeMs: 0,
+          trace: loopInput.__executionTrace || [],
+          completedToolKeys: loopInput.__completedToolKeys || [],
+        };
+        break;
+      }
+
+      if (!plan.steps || plan.steps.length === 0) {
+        execState.isCompleted = true;
+        const userMessage = formatResponse({
+          success: false,
+          message: "Plan tool tidak memiliki langkah yang valid",
+        });
+        lastPlan = plan;
+        lastExecution = {
+          score: 0,
+          outputs: [],
+          summary: plan.summary || "Plan tidak valid",
+          gaps: plan.gaps || [],
+          recommendations: plan.recommendations || [],
+          finalResponse: userMessage,
+          tokenUsage: { used: 0, budget: agentConfig.defaultTokenBudget || 4000, withinBudget: true },
+          executionTimeMs: 0,
+          trace: loopInput.__executionTrace || [],
+          completedToolKeys: loopInput.__completedToolKeys || [],
+        };
+        break;
+      }
+
+      const execution = await this.executor.execute(plan, {
+        ...loopInput,
+        __runId: runId,
+        __agentName: this.name,
+        __eventBus: eventBus,
+        __executionTrace: loopInput.__executionTrace,
+        __completedToolKeys: loopInput.__completedToolKeys,
+        __stopAfterFirstSuccess: true,
+        __agentExecution: {
+          runId,
+          onToolComplete: ({ stepOrdinal, tool, normalized }) => {
+            agentExecutionStore.appendStepHistory(this.name, runId, {
+              step: stepOrdinal,
+              tool,
+              result: normalized,
+            });
+            agentExecutionStore.setLastToolResult(this.name, runId, normalized);
+            agentExecutionStore.setExecutionState(this.name, runId, {
+              ...agentExecutionStore.get(this.name, runId).executionState,
+              currentStep: stepOrdinal,
+            });
+          },
+        },
+      });
+
+      lastExecution = execution;
+      lastPlan = plan;
+
+      if (typeof memoryApi.add === "function" && Array.isArray(execution.outputs)) {
+        for (const out of execution.outputs) {
+          if (out.output !== undefined && out.tool !== "__respond__") {
+            memoryApi.add({
+              role: "tool",
+              name: out.tool || "tool",
+              content: JSON.stringify({
+                status: out.status,
+                output: out.output,
+                reason: out.reason,
+              }),
+            });
+          }
+        }
+      }
+
+      const lastOk = [...(execution.outputs || [])].reverse().find(
+        (o) => o.status === "ok" && o.output && o.output.success !== false
+      );
+      const toolResult = lastOk && lastOk.output ? lastOk.output : null;
+
+      if (toolResult) {
+        execState.lastResult = toolResult;
+        appendTrace(execState, {
+          tool: lastOk.tool,
+          input: (plan.steps && plan.steps[0] && plan.steps[0].input) || {},
+          output: toolResult,
+        });
+      }
+
+      const prevSnap = agentExecutionStore.get(this.name, runId);
+      const mergedTrace = [
+        ...(prevSnap && Array.isArray(prevSnap.trace) ? prevSnap.trace : []),
+        ...(execution.trace || []),
+      ];
+      agentExecutionStore.patch(this.name, runId, { trace: mergedTrace });
+
+      execState.stepCount++;
+
+      if (toolResult && toolResult.success === true) {
+        execState.isCompleted = true;
+        const userMessage = formatResponse(toolResult);
+        lastExecution = {
+          ...execution,
+          finalResponse: userMessage,
+        };
+        break;
+      }
+
+      const failedOutputs = (execution.outputs || []).filter(
+        (o) => o.status === "error" || (o.output && o.output.success === false)
+      );
+      if (failedOutputs.length > 0) {
+        execState.isCompleted = true;
+        const err = failedOutputs[failedOutputs.length - 1];
+        const errPayload = err.output || { success: false, message: err.reason || "Tool error" };
+        const userMessage = formatResponse(errPayload);
+        lastExecution = {
+          ...execution,
+          finalResponse: userMessage,
+        };
+        break;
+      }
+
+      loopInput = {
+        ...cleanInput,
+        __isContinuation: true,
+        __stepCount: execState.stepCount + 1,
+        __lastToolResult: toolResult,
+        __executionTrace: execution.trace || [],
+        __completedToolKeys: execution.completedToolKeys || [],
+      };
+    }
+
+    if (!execState.isCompleted && execState.stepCount >= execState.maxSteps) {
+      const maxMsg = "❌ Execution stopped (loop detected)";
+      lastExecution = lastExecution || {
+        score: 0,
+        outputs: [],
+        summary: maxMsg,
+        gaps: [],
+        recommendations: [],
+        finalResponse: maxMsg,
+        tokenUsage: { used: 0, budget: agentConfig.defaultTokenBudget || 4000, withinBudget: true },
+        executionTimeMs: 0,
+        trace: loopInput.__executionTrace || [],
+        completedToolKeys: loopInput.__completedToolKeys || [],
+      };
+      lastExecution.finalResponse = maxMsg;
+      execState.isCompleted = true;
+    }
+
+    const execution = lastExecution;
+    const plan = lastPlan;
+
+    if (!execution) {
+      const fallback = formatResponse({ success: false, message: "Tidak ada hasil eksekusi" });
+      modelManager.restoreModel(routing.previousModel);
       return {
         agent: this.name,
-        plan: { plannerDecision: "respond", steps: [], summary: msg },
+        plan: plan || { plannerDecision: "respond", steps: [] },
         action: "respond",
-        message: msg,
+        message: fallback,
         __runId: runId,
         __modelId: routing.modelId,
         __routingMode: routing.routingMode,
-        ...errResult,
+        finalResponse: fallback,
+        summary: "Error",
+        score: 0,
+        outputs: [],
+        gaps: [],
+        recommendations: [],
+        __executionTrace: [],
+        __completedToolKeys: [],
       };
     }
 
-    console.log("MODEL:", modelManager.getModel());
-
-    // Gunakan async context builder jika tersedia (mendukung LLM summarizer)
-    const plannerContext = typeof this.memory.short.buildPlannerContextAsync === "function"
-      ? await this.memory.short.buildPlannerContextAsync({
-          maxTokens: agentConfig.defaultTokenBudget,
-          keepRecent: agentConfig.plannerRecentWindow,
-        })
-      : this.memory.short.buildPlannerContext({
-          maxTokens: agentConfig.defaultTokenBudget,
-          keepRecent: agentConfig.plannerRecentWindow,
-        });
-
-    if (plannerContext.didSummarize) {
-      this.logger.info("Summarization terjadi karena context limit", {
-        agent: this.name,
-        tokenUsage: plannerContext.tokenUsage,
-        fullHistoryUsage: plannerContext.fullHistoryUsage,
-        method: agentConfig.useLLMSummarizer ? "llm" : "rule-based",
-      });
-    }
-
-    let plan = await this.planner.createPlan({
-      ...cleanInput,
-      __stepCount: stepCount,
-      context: plannerContext,
-      __agentName: this.name,
-      __eventBus: eventBus,
-    });
-
-    plan = applyPlannerSuccessRespondPolicy(plan, cleanInput.__lastToolResult);
-
-    if (this.reviewer && plan.plannerDecision === "tool") {
-      this.logger.info("Meminta Reviewer Agent untuk mengevaluasi plan", { stepCount: plan.steps ? plan.steps.length : 0 });
-      
-      if (eventBus) {
-        await eventBus.emit(EVENT_TYPES.PLANNER_DECISION, {
-          timestamp: new Date().toISOString(),
-          agent: this.name + "-reviewer",
-          payload: { summary: "Mengevaluasi keamanan instruksi..." }
-        });
-      }
-
-      const review = await this.reviewer.reviewPlan(plan, cleanInput);
-      
-      if (!review.approved) {
-        this.logger.warn("Agent Veto: Rencana ditolak oleh Reviewer", { reason: review.reason });
-        const vetoExecution = {
-          success: false,
-          summary: "Instruksi diveto oleh Reviewer Agent: " + review.reason,
-          finalResponse: "Sistem Keamanan Starclaw (Reviewer) mencegah saya melakukan tindakan ini. Alasan: " + review.reason,
-          score: 0,
-          gaps: Array.isArray(plan.gaps) ? plan.gaps : [],
-          recommendations: Array.isArray(plan.recommendations) ? plan.recommendations : [],
-        };
-
-        this.memory.short.remember({
-          agent: this.name,
-          userMessage: typeof cleanInput.message === "string" ? cleanInput.message : JSON.stringify(cleanInput),
-          agentMessage: vetoExecution.finalResponse,
-          input: cleanInput,
-          execution: vetoExecution,
-        });
-
-        agentExecutionStore.setExecutionState(this.name, runId, {
-          ...agentExecutionStore.get(this.name, runId).executionState,
-          status: "done",
-          goalReached: false,
-          terminatedReason: "reviewer_veto",
-        });
-        modelManager.restoreModel(routing.previousModel);
-        if (eventBus) {
-          await eventBus.emit(EVENT_TYPES.AGENT_FINISHED, {
-            timestamp: new Date().toISOString(),
-            agent: this.name,
-            payload: { ...vetoExecution, action: "respond", runId },
-          });
-        }
-
-        return {
-          agent: this.name,
-          plan,
-          action: "respond",
-          message: vetoExecution.finalResponse,
-          __runId: runId,
-          __modelId: routing.modelId,
-          __routingMode: routing.routingMode,
-          ...vetoExecution,
-        };
-      }
-      this.logger.info("Reviewer menyetujui plan", { reason: review.reason });
-    }
-
-    const execution = await this.executor.execute(plan, {
-      ...cleanInput,
-      __runId: runId,
-      __agentName: this.name,
-      __eventBus: eventBus,
-      __executionTrace: cleanInput.__executionTrace,
-      __completedToolKeys: cleanInput.__completedToolKeys,
-      __agentExecution: {
-        runId,
-        onToolComplete: ({ stepOrdinal, tool, normalized }) => {
-          agentExecutionStore.appendStepHistory(this.name, runId, {
-            step: stepOrdinal,
-            tool,
-            result: normalized,
-          });
-          agentExecutionStore.setLastToolResult(this.name, runId, normalized);
-          agentExecutionStore.setExecutionState(this.name, runId, {
-            ...agentExecutionStore.get(this.name, runId).executionState,
-            currentStep: stepOrdinal,
-          });
-        },
-      },
-    });
-
-    if (typeof this.memory.short.addToolResult === "function" && Array.isArray(execution.outputs)) {
-      for (const out of execution.outputs) {
-        if (out.output !== undefined && out.tool !== "__respond__") {
-          this.memory.short.addToolResult({
-            name: out.tool || "tool",
-            content: JSON.stringify({
-              status: out.status,
-              output: out.output,
-              reason: out.reason,
-            }),
-          });
-        }
-      }
-    }
+    const userFacingMessage = formatResponse(
+      execution.finalResponse != null && String(execution.finalResponse).trim() !== ""
+        ? execution.finalResponse
+        : execState.lastResult
+    );
 
     const goalReached =
-      plan.plannerDecision === "respond" ||
-      Boolean(execution.finalResponse && String(execution.finalResponse).trim() !== "");
-
-    const envelope = {
-      action: "respond",
-      message: execution.finalResponse || execution.summary || "",
-      runId,
-      modelId: routing.modelId,
-      routingMode: routing.routingMode,
-    };
+      (plan && plan.plannerDecision === "respond") ||
+      Boolean(userFacingMessage && String(userFacingMessage).trim() !== "");
 
     agentExecutionStore.setExecutionState(this.name, runId, {
       ...agentExecutionStore.get(this.name, runId).executionState,
@@ -255,21 +384,13 @@ class BaseAgent {
       goalReached,
       terminatedReason: goalReached ? "goal_reached" : "completed",
     });
-    const prevSnap = agentExecutionStore.get(this.name, runId);
-    const mergedTrace = [
-      ...(prevSnap && Array.isArray(prevSnap.trace) ? prevSnap.trace : []),
-      ...(execution.trace || []),
-    ];
-    agentExecutionStore.patch(this.name, runId, {
-      trace: mergedTrace,
-    });
 
     this.memory.short.remember({
       agent: this.name,
       userMessage: typeof cleanInput.message === "string" ? cleanInput.message : JSON.stringify(cleanInput),
-      agentMessage: envelope.message,
+      agentMessage: userFacingMessage,
       input: cleanInput,
-      execution,
+      execution: { ...execution, finalResponse: userFacingMessage },
     });
 
     modelManager.restoreModel(routing.previousModel);
@@ -280,9 +401,9 @@ class BaseAgent {
         agent: this.name,
         payload: {
           summary: execution.summary,
-          finalResponse: envelope.message,
+          finalResponse: userFacingMessage,
           score: execution.score,
-          action: envelope.action,
+          action: "respond",
           runId,
         },
       });
@@ -290,15 +411,64 @@ class BaseAgent {
 
     return {
       agent: this.name,
-      plan,
+      plan: plan || { plannerDecision: "respond", steps: [] },
       ...execution,
-      action: envelope.action,
-      message: envelope.message,
+      finalResponse: userFacingMessage,
+      action: "respond",
+      message: userFacingMessage,
       __runId: runId,
       __modelId: routing.modelId,
       __routingMode: routing.routingMode,
       __executionTrace: execution.trace || [],
       __completedToolKeys: execution.completedToolKeys || [],
+      __executionState: execState,
+    };
+  }
+
+  async _terminateMaxStepsEarly({ cleanInput, runId, routing, eventBus, msg }) {
+    this.logger.warn(msg, { agent: this.name });
+    const errResult = {
+      score: 0,
+      outputs: [],
+      summary: msg,
+      gaps: [],
+      recommendations: [],
+      finalResponse: msg,
+      tokenUsage: { used: 0, budget: agentConfig.defaultTokenBudget || 4000, withinBudget: true },
+      executionTimeMs: 0,
+      trace: Array.isArray(cleanInput.__executionTrace) ? cleanInput.__executionTrace : [],
+    };
+    agentExecutionStore.setExecutionState(this.name, runId, {
+      ...agentExecutionStore.get(this.name, runId).executionState,
+      status: "terminated",
+      goalReached: false,
+      terminatedReason: "max_steps",
+    });
+    agentExecutionStore.patch(this.name, runId, { trace: errResult.trace });
+    this.memory.short.remember({
+      agent: this.name,
+      userMessage: typeof cleanInput.message === "string" ? cleanInput.message : JSON.stringify(cleanInput),
+      agentMessage: msg,
+      input: cleanInput,
+      execution: errResult,
+    });
+    modelManager.restoreModel(routing.previousModel);
+    if (eventBus) {
+      await eventBus.emit(EVENT_TYPES.AGENT_FINISHED, {
+        timestamp: new Date().toISOString(),
+        agent: this.name,
+        payload: { summary: msg, finalResponse: msg, score: 0, action: "respond", runId },
+      });
+    }
+    return {
+      agent: this.name,
+      plan: { plannerDecision: "respond", steps: [], summary: msg },
+      action: "respond",
+      message: msg,
+      __runId: runId,
+      __modelId: routing.modelId,
+      __routingMode: routing.routingMode,
+      ...errResult,
     };
   }
 }

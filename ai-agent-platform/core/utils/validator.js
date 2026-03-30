@@ -131,13 +131,17 @@ function normalizePlannerDecision(rawDecision) {
   // FORMAT 1: action = "respond"
   // ----------------------------------------------------------------
   if (rawDecision.action === "respond") {
+    const text =
+      rawDecision.message != null && String(rawDecision.message).trim() !== ""
+        ? String(rawDecision.message)
+        : (rawDecision.response != null ? String(rawDecision.response) : "");
     return {
       steps: [],
       summary: rawDecision.summary || "Planner memutuskan respon langsung",
       baseScore: typeof rawDecision.baseScore === "number" ? rawDecision.baseScore : 0,
       gaps: [],
       recommendations: [],
-      finalResponse: rawDecision.response || "",
+      finalResponse: text,
       plannerDecision: "respond",
     };
   }
