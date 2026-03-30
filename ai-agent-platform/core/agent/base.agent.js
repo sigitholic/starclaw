@@ -9,6 +9,7 @@ const { agentExecutionStore } = require("../orchestrator/agent.execution.store")
 const { createExecutionState, appendTrace } = require("./stateManager");
 const { formatResponse } = require("./formatter");
 const { wrapMemoryForExecution } = require("../memory/memory");
+const { getSessionSnapshot, patchSession } = require("../memory/shortMemory");
 
 class BaseAgent {
   constructor({ name, planner, reviewer, executor, memory, logger }) {
@@ -31,6 +32,15 @@ class BaseAgent {
       typeof cleanInput.__runId === "string" && cleanInput.__runId
         ? cleanInput.__runId
         : `run-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
+
+    const sessionId =
+      (typeof cleanInput.__sessionId === "string" && cleanInput.__sessionId.trim()
+        ? cleanInput.__sessionId.trim()
+        : null) ||
+      (typeof cleanInput.__channelSessionId === "string" && cleanInput.__channelSessionId.trim()
+        ? cleanInput.__channelSessionId.trim()
+        : null) ||
+      this.name;
 
     const routing = modelManager.applyModelRouting(cleanInput);
     const storeEntry = agentExecutionStore.getOrCreate(this.name, runId);
@@ -78,7 +88,10 @@ class BaseAgent {
       execState.history = [...cleanInput.__executionState.history];
     }
 
-    let loopInput = { ...cleanInput };
+    let loopInput = {
+      ...cleanInput,
+      __sessionId: sessionId,
+    };
     let lastExecution = null;
     let lastPlan = null;
 
@@ -108,6 +121,7 @@ class BaseAgent {
         context: plannerContext,
         __agentName: this.name,
         __eventBus: eventBus,
+        __shortMemory: getSessionSnapshot(sessionId),
       });
 
       plan = applyPlannerSuccessRespondPolicy(plan, loopInput.__lastToolResult);
@@ -255,6 +269,16 @@ class BaseAgent {
 
       lastExecution = execution;
       lastPlan = plan;
+
+      for (const out of execution.outputs || []) {
+        if (out.status !== "ok" || !out.output || out.output.success === false) continue;
+        if (out.tool !== "run-system-command") continue;
+        const detail = out.output.detail && typeof out.output.detail === "object" ? out.output.detail : {};
+        const target = detail.target;
+        if (typeof target === "string" && target.trim()) {
+          patchSession(sessionId, { lastPingTarget: target.trim() });
+        }
+      }
 
       if (typeof memoryApi.add === "function" && Array.isArray(execution.outputs)) {
         for (const out of execution.outputs) {

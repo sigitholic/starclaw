@@ -67,9 +67,12 @@ class Planner {
     const canShortCircuitIntent =
       !input.__isRegenerate && (!input.observations || input.observations.length === 0);
 
+    const shortMemory =
+      input && input.__shortMemory && typeof input.__shortMemory === "object" ? input.__shortMemory : null;
+
     // Intent: chat vs skill — tanpa observasi, jangan paksa semua input ke skill
     if (canShortCircuitIntent && this.skillRegistry && !needsStructuredPlannerMessage(message)) {
-      const intent = plan(message);
+      const intent = plan(message, shortMemory);
       if (intent.type === "chat") {
         const chatFn = this.llmProvider && typeof this.llmProvider.chat === "function"
           ? this.llmProvider.chat.bind(this.llmProvider)
@@ -106,7 +109,7 @@ class Planner {
         return normalizedPlan;
       }
 
-      const intentSkill = matchIntentToSkill(message, this.skillRegistry);
+      const intentSkill = matchIntentToSkill(message, this.skillRegistry, shortMemory);
       if (intentSkill) {
         const normalizedPlan = normalizePlannerDecision(intentSkill);
         normalizedPlan.intentType = "skill";
@@ -139,6 +142,7 @@ class Planner {
       rawDecision,
       message,
       this.skillRegistry,
+      shortMemory,
     );
     const normalizedPlan = normalizePlannerDecision(coerced);
 
