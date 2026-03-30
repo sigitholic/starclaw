@@ -66,12 +66,17 @@ function validateToolPlugin(pluginDir, pluginName) {
       result.valid = false;
     }
 
-    if (!Array.isArray(mod.tools) && !Array.isArray(mod.workflows)) {
+    const hasSingleToolShape =
+      typeof mod.run === "function" &&
+      typeof mod.name === "string" &&
+      mod.name.trim() !== "";
+
+    if (!Array.isArray(mod.tools) && !Array.isArray(mod.workflows) && !hasSingleToolShape) {
       result.warnings.push({
         level: VALIDATION_LEVELS.WARN,
         code: "NO_TOOLS_OR_WORKFLOWS",
         message: `Plugin tidak meng-export 'tools' atau 'workflows'`,
-        fix: "Tambahkan array tools[] atau workflows[] ke export",
+        fix: "Tambahkan array tools[] atau workflows[] ke export, atau export tunggal { name, description, run }",
       });
     } else if (Array.isArray(mod.tools)) {
       for (const tool of mod.tools) {
