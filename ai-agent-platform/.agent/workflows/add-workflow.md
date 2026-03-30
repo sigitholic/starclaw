@@ -2,6 +2,12 @@
 description: cara mendaftarkan workflow baru ke orchestrator AI Agent Starclaw
 ---
 
+## Workflow runtime Starclaw (bukan custom workflow)
+
+Untuk memahami **alur agent** (Re-Act, planner, executor, respons setelah tool sukses, `.env`), baca **`starclaw-workflow.md`** di folder ini.
+
+---
+
 ## Menambahkan Workflow Baru
 
 ### Apa itu Workflow?

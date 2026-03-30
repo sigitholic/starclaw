@@ -27,6 +27,7 @@ Platform AI Agent **otonom** berbasis Node.js yang mampu mengerjakan banyak tuga
 - [API HTTP](#api-http)
 - [Dashboard](#dashboard)
 - [Panduan Developer](#panduan-developer)
+- [Changelog & riwayat fitur (Git)](#changelog--riwayat-fitur-git)
 
 ---
 
@@ -114,7 +115,9 @@ INPUT (pesan user)
     ▼
 [6] RE-ACT LOOP (jika decision = "tool")
     │  ├─ Hasil tool diinjeksi sebagai [OBSERVATIONS] ke prompt berikutnya
-    │  ├─ Planner dipanggil lagi dengan observasi baru
+    │  ├─ Jika tool terakhir `success === true`, payload berikutnya memuat __lastToolResult
+    │  ├─ Planner dapat dipaksa ke respond (tanpa step tool baru) lewat applyPlannerSuccessRespondPolicy
+    │  ├─ Planner dipanggil lagi dengan observasi / konteks baru
     │  └─ Loop berlanjut sampai decision = "respond" (tugas selesai)
     │
     ▼
@@ -154,7 +157,8 @@ ai-agent-platform/
 ├── config/
 │   ├── agent.config.js # Token budget, memory window
 │   ├── app.config.js   # Port, env settings
-│   └── env.config.js   # Parser .env file
+│   ├── load-env.js     # Muat dotenv di startup (GENIEACS_URL, dll.)
+│   └── env.config.js   # Objek konfigurasi (memanggil load-env)
 │
 ├── core/
 │   ├── agent/
@@ -293,6 +297,8 @@ nano .env
 ---
 
 ## Konfigurasi
+
+File `.env` dimuat di **startup** lewat `config/load-env.js` (paket `dotenv`) pada proses API, worker, dan skrip utama (`dev`, `start-all`, `channel-runner`, `agent-cli`). Variabel seperti `GENIEACS_URL` dibaca dari **`process.env`**; konfigurasi per-plugin tambahan disimpan di `data/plugin-configs/<nama-plugin>/config.json` dan di-inject saat plugin dimuat.
 
 Edit file `.env`:
 
@@ -959,6 +965,8 @@ orchestrator.registerWorkflow("nama-workflow", async ({ payload, eventBus }) => 
 });
 ```
 
+Dokumentasi alur runtime agent (Re-Act, executor, respons setelah tool sukses) ada di **`.agent/workflows/starclaw-workflow.md`**.
+
 ### Membuat Plugin
 
 ```bash
@@ -1031,11 +1039,31 @@ Semua event dikirim via `eventBus` dan disimpan di `eventStore`:
 
 ---
 
+## Changelog & riwayat fitur (Git)
+
+Checklist singkat perubahan yang relevan dengan branch utama (urutan commit terbaru di atas):
+
+| Commit | Ringkasan |
+|--------|-----------|
+| `5a21188` | **Platform:** `dotenv` di startup (`load-env.js`), deduplikasi registrasi tool, `plugin.json` default jika hilang, `env.config` memakai load-env |
+| `072bf27` | **Agent:** `formatFinalAnswer` mendukung `data` / `verdict` / fallback objek; **respond** dipaksa setelah tool sukses pada lanjutan workflow (`applyPlannerSuccessRespondPolicy` + `__lastToolResult`) |
+| `655a7a0` | Execution state, trace API, model routing, tahap respond |
+| `52c69a0` | Batas langkah, injeksi hasil tool, router model, Gemini |
+| `f319321` | Strict planner (`type=plan`), tolak legacy-plan |
+| `491cb1b` | ToolGuard + PlannerGuard (fuzzy match nama tool) |
+| `00dccee` | Structured workflow (planner + executor + validator deterministik) |
+| `3aea7d4` | Validator plugin, tipe service, `package.json` plugin |
+
+Untuk detail perilaku workflow runtime, lihat **`.agent/workflows/starclaw-workflow.md`**.
+
+---
+
 ## Requirement
 
 | Dependency | Versi | Fungsi |
 |------------|-------|--------|
 | Node.js | >= 18.0.0 | Runtime |
+| dotenv | ^16.x | Muat `.env` ke `process.env` di startup |
 | express | ^5.2.1 | API Server |
 | ws | ^8.20.0 | WebSocket |
 | next | ^16.2.1 | Dashboard UI |
