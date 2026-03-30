@@ -49,8 +49,8 @@ const agentConfig = {
   // Default timeout tool per step (ms) — 0 = tidak ada timeout
   defaultToolTimeoutMs: 30000,
 
-  // Default max retry tool per step
-  defaultToolMaxRetries: 1,
+  // Default max retry tool per step (total attempts = 1 + maxRetries; mis. 2 = hingga 3 percobaan)
+  defaultToolMaxRetries: 2,
 
   // ============================================================
   // Token Tracking
