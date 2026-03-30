@@ -3,7 +3,7 @@
 const { ensureTokenBudget } = require("../memory/token.manager");
 const { EVENT_TYPES } = require("../events/event.types");
 const { agentConfig } = require("../../config/agent.config");
-const { normalizeToolResult, formatFinalAnswer } = require("../llm/modelRouter");
+const { normalizeToolResult, normalizeSkillResult, formatFinalAnswer } = require("../llm/modelRouter");
 const { modelManager } = require("../llm/modelManager");
 
 class Executor {
@@ -133,7 +133,7 @@ class Executor {
           timeoutMs
         );
 
-        const normalized = normalizeToolResult(rawOutput);
+        const normalized = normalizeSkillResult(rawOutput);
         this.logger.debug("Skill result", { skill: skillName, success: normalized.success });
 
         if (normalized.success === false) {

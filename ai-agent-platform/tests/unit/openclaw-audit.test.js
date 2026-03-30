@@ -92,6 +92,9 @@ test("executor menjalankan skill yang memanggil tool", async () => {
   assert.equal(out.outputs[0].tool, "fetch-api-data");
   assert.equal(out.outputs[0].status, "ok");
   assert.equal(out.outputs[0].output.success, true);
+  assert.equal(typeof out.outputs[0].output.summary, "string");
+  assert.ok(out.outputs[0].output.summary.length > 0);
+  assert.ok(typeof out.outputs[0].output.detail === "object" && out.outputs[0].output.detail !== null);
 });
 
 test("tool registry menolak tool tanpa kontrak name/run", () => {

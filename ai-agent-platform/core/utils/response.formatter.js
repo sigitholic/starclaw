@@ -339,10 +339,19 @@ function formatGenericResult(result, toolName) {
   if (result.message || result.summary) {
     return autoFormat(result.message || result.summary);
   }
-  // Last resort: stringify hasil dengan rapi
+  // Last resort: ringkas per kunci (tanpa JSON.stringify objek utuh)
   const lines = Object.entries(result)
     .filter(([k]) => !["success", "__context"].includes(k))
-    .map(([k, v]) => `${k}: ${typeof v === "object" ? JSON.stringify(v).slice(0, 80) : v}`);
+    .map(([k, v]) => {
+      if (v == null) return `${k}: —`;
+      if (typeof v === "object") {
+        if (Array.isArray(v)) return `${k}: ${v.length} item`;
+        const n = Object.keys(v).length;
+        return `${k}: (${n} field)`;
+      }
+      const s = String(v);
+      return `${k}: ${s.length > 100 ? `${s.slice(0, 97)}…` : s}`;
+    });
   return formatResponse({
     status: result.success === false ? "error" : "info",
     title: `Hasil ${toolName}`,

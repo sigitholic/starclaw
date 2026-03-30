@@ -5,6 +5,7 @@ const {
   autoFormat,
   formatResponse: formatStructuredResponse,
 } = require("../utils/response.formatter");
+const { formatSkillFinalAnswer } = require("../llm/modelRouter");
 
 /**
  * Layer wajib: semua keluaran ke user melalui formatter (bukan raw JSON mentah).
@@ -36,6 +37,16 @@ function formatResponse(result, toolName) {
   }
 
   if (typeof result === "object") {
+    if (
+      result &&
+      typeof result.summary === "string" &&
+      result.detail != null &&
+      typeof result.detail === "object" &&
+      !Array.isArray(result.detail) &&
+      typeof result.success === "boolean"
+    ) {
+      return formatSkillFinalAnswer(result);
+    }
     if (Array.isArray(result)) {
       const details = result.slice(0, 20).map((x) => {
         if (x == null) return "• (kosong)";

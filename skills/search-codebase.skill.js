@@ -2,7 +2,7 @@
 
 const path = require("path");
 
-const { normalizeToolResult } = require("../ai-agent-platform/core/llm/modelRouter");
+const { normalizeToolResult, fromNormalizedTool } = require("./skill-result.helper");
 
 module.exports = {
   name: "search-codebase",
@@ -17,10 +17,6 @@ module.exports = {
       ...(o.symbol != null && o.symbol !== "" ? { symbol: o.symbol } : {}),
     };
     const raw = await tools["codebase-search-tool"].run(toolInput);
-    const normalized = normalizeToolResult(raw);
-    return {
-      success: normalized.success !== false,
-      data: normalized,
-    };
+    return fromNormalizedTool(normalizeToolResult(raw));
   },
 };

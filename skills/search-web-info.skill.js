@@ -1,6 +1,6 @@
 "use strict";
 
-const { normalizeToolResult } = require("../ai-agent-platform/core/llm/modelRouter");
+const { normalizeToolResult, mergeToolLines } = require("./skill-result.helper");
 
 module.exports = {
   name: "search-web-info",
@@ -21,14 +21,10 @@ module.exports = {
         await tools["browser-tool"].run({ action: "goto", url })
       );
     }
-    const combined = {
-      success: searchOut.success !== false && (!browserOut || browserOut.success !== false),
-      data: { webSearch: searchOut, browser: browserOut },
-      message: "search-web-info",
-    };
-    return {
-      success: combined.success,
-      data: combined,
-    };
+    const pairs = [{ key: "Pencarian web", normalized: searchOut }];
+    if (browserOut) {
+      pairs.push({ key: "Browser", normalized: browserOut });
+    }
+    return mergeToolLines(pairs);
   },
 };

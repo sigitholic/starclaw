@@ -1,6 +1,6 @@
 "use strict";
 
-const { normalizeToolResult } = require("../ai-agent-platform/core/llm/modelRouter");
+const { normalizeToolResult, fromNormalizedTool } = require("./skill-result.helper");
 
 const DEFAULT_WEBHOOK_URL = "https://httpbin.org/post";
 
@@ -22,10 +22,6 @@ module.exports = {
       ...(o.platform != null ? { platform: o.platform } : {}),
     };
     const raw = await tools["social-media-tool"].run(toolInput);
-    const normalized = normalizeToolResult(raw);
-    return {
-      success: normalized.success !== false,
-      data: normalized,
-    };
+    return fromNormalizedTool(normalizeToolResult(raw));
   },
 };

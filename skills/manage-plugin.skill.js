@@ -1,6 +1,6 @@
 "use strict";
 
-const { normalizeToolResult } = require("../ai-agent-platform/core/llm/modelRouter");
+const { normalizeToolResult, fromNormalizedTool, mergeToolLines } = require("./skill-result.helper");
 
 module.exports = {
   name: "manage-plugin",
@@ -30,11 +30,7 @@ module.exports = {
 
     if (mode === "config" || mode === "plugin-config") {
       const raw = await tools["plugin-config-tool"].run(configInput);
-      const normalized = normalizeToolResult(raw);
-      return {
-        success: normalized.success !== false,
-        data: { step: "plugin-config-tool", result: normalized },
-      };
+      return fromNormalizedTool(normalizeToolResult(raw));
     }
 
     const pluginOut = normalizeToolResult(await tools["plugin-tool"].run(pluginInput));
@@ -42,10 +38,10 @@ module.exports = {
     if (o.alsoConfig === true) {
       configOut = normalizeToolResult(await tools["plugin-config-tool"].run(configInput));
     }
-    const ok = pluginOut.success !== false && (!configOut || configOut.success !== false);
-    return {
-      success: ok,
-      data: { plugin: pluginOut, config: configOut },
-    };
+    const pairs = [{ key: "Plugin", normalized: pluginOut }];
+    if (configOut) {
+      pairs.push({ key: "Konfigurasi", normalized: configOut });
+    }
+    return mergeToolLines(pairs);
   },
 };

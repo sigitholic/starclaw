@@ -1,6 +1,6 @@
 "use strict";
 
-const { normalizeToolResult } = require("../ai-agent-platform/core/llm/modelRouter");
+const { normalizeToolResult, fromNormalizedTool } = require("./skill-result.helper");
 
 /** URL publik yang menerima POST JSON — dipakai bila planner tidak mengisi `to`. */
 const DEFAULT_WEBHOOK_URL = "https://httpbin.org/post";
@@ -22,10 +22,6 @@ module.exports = {
       ...(o.emailProvider != null ? { emailProvider: o.emailProvider } : {}),
     };
     const raw = await tools["notification-tool"].run(toolInput);
-    const normalized = normalizeToolResult(raw);
-    return {
-      success: normalized.success !== false,
-      data: normalized,
-    };
+    return fromNormalizedTool(normalizeToolResult(raw));
   },
 };
