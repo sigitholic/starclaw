@@ -69,7 +69,7 @@ function createTelegramChannel({
   let running = false;
   let offset = 0;
 
-  async function tgCall(method, payload = {}) {
+  async function tgCallRaw(method, payload = {}) {
     const response = await fetch(`${apiBase}/${method}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -87,6 +87,32 @@ function createTelegramChannel({
     }
 
     return body.result;
+  }
+
+  /**
+   * Wrapper tgCall dengan auto-fallback ke plain text.
+   * Jika Telegram menolak karena Markdown tidak valid (can't parse entities),
+   * otomatis kirim ulang tanpa parse_mode — berlaku untuk SEMUA tgCall di channel ini.
+   */
+  async function tgCall(method, payload = {}) {
+    try {
+      return await tgCallRaw(method, payload);
+    } catch (err) {
+      const isParseError = err.message && (
+        err.message.includes("can't parse entities") ||
+        err.message.includes("Can't find end of the entity") ||
+        err.message.includes("Bad Request: can't parse")
+      );
+
+      // Jika error entity parsing DAN payload pakai parse_mode → retry tanpa formatting
+      if (isParseError && payload.parse_mode) {
+        const fallbackPayload = { ...payload };
+        delete fallbackPayload.parse_mode;
+        return await tgCallRaw(method, fallbackPayload);
+      }
+
+      throw err;
+    }
   }
 
   /**
