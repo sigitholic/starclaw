@@ -3,6 +3,7 @@
 const { normalizePlannerDecision } = require("../utils/validator");
 const { EVENT_TYPES } = require("../events/event.types");
 const { selectRelevantTools, extractPreviousTools } = require("./tool.selector");
+const { modelManager } = require("../llm/modelManager");
 
 class Planner {
   constructor({ llmProvider, promptBuilder, toolsRegistry, logger }) {
@@ -39,6 +40,8 @@ class Planner {
     }
 
     const prompt = this.promptBuilder.buildPlanningPrompt(input, selectedSchemas);
+
+    console.log("MODEL:", modelManager.getModel());
 
     const rawDecision = await this.llmProvider.plan(prompt, input);
     const normalizedPlan = normalizePlannerDecision(rawDecision);

@@ -1,6 +1,7 @@
 "use strict";
 
 const { autoLoadSkills } = require("../skills/skill.loader");
+const { agentConfig } = require("../../config/agent.config");
 
 // Instruksi format respons yang diinjeksi ke semua prompt
 const RESPONSE_FORMAT_INSTRUCTION = `
@@ -46,9 +47,15 @@ function createPromptBuilder() {
 
     return JSON.stringify(
       context.recent.map((entry) => {
+        if (entry.role === "tool") {
+          return {
+            role: "tool",
+            name: entry.name,
+            content: entry.content,
+          };
+        }
         let toolLogs = "";
         if (entry.execution && Array.isArray(entry.execution.outputs) && entry.execution.outputs.length > 0) {
-          // Hanya mengeksplor argumen output untuk hemat token
           toolLogs = " [TOOL RESULTS: " + JSON.stringify(entry.execution.outputs.map(o => o.output)) + "]";
         }
         return {
@@ -156,6 +163,7 @@ PANDUAN PENJADWALAN & PENGINGAT:
           return `Waktu Saat Ini (WIB/UTC+7): ${pad(wib.getHours())}:${pad(wib.getMinutes())} tanggal ${pad(wib.getDate())}/${pad(wib.getMonth()+1)}/${wib.getFullYear()} (ISO: ${wibStr}). ATURAN WAKTU: Jika user menyebut jam tertentu TANPA AM/PM, pilih waktu yang PALING DEKAT di masa depan dari waktu saat ini. Contoh: jika sekarang 04:19 dan user bilang "jam 4:20", maka datetime = ...T04:20:00+07:00 BUKAN 16:20. Selalu gunakan timezone +07:00.`;
         })(),
         extras,
+        `Execution step (workflow): ${typeof input.__stepCount === "number" ? input.__stepCount : 1} / ${agentConfig.maxExecutionSteps || 5}`,
         `Recent context (max 3): ${formatRecentContext(context)}`,
         `Context token usage: ${JSON.stringify(context.tokenUsage || {})}`,
       ];

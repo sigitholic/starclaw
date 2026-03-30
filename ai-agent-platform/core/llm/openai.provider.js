@@ -1,6 +1,8 @@
 "use strict";
 
 const { normalizePlannerDecision } = require("../utils/validator");
+const { modelManager } = require("./modelManager");
+const { callModelJson, ROUTING } = require("./modelRouter");
 
 // ===================================================
 // CIRCUIT BREAKER — mencegah spam ke OpenAI saat down
@@ -33,7 +35,7 @@ function createCircuitBreaker({ failureThreshold = 3, cooldownMs = 30000 } = {})
         const elapsed = Date.now() - openedAt;
         if (elapsed >= cooldownMs) {
           state = "HALF-OPEN";
-          return true; // Beri satu kesempatan untuk coba lagi
+          return true;
         }
         return false;
       }
@@ -55,7 +57,6 @@ async function withRetry(fn, { maxRetries = 3, baseDelayMs = 1000 } = {}) {
     } catch (err) {
       lastError = err;
       if (attempt < maxRetries) {
-        // Exponential backoff: 1s, 2s, 4s, 8s... + random jitter
         const delay = baseDelayMs * Math.pow(2, attempt) + Math.random() * 500;
         await new Promise(resolve => setTimeout(resolve, delay));
       }
@@ -100,18 +101,40 @@ async function callOpenAI({ apiKey, modelName, systemPrompt, userPrompt, tempera
   }
 }
 
+function resolveOpenAiApiModel() {
+  const id = modelManager.getModel();
+  const route = ROUTING[id];
+  if (route && route.provider === "openai") {
+    return route.apiModel;
+  }
+  return process.env.LLM_MODEL || "gpt-4o-mini";
+}
+
 function createOpenAIProvider() {
   const apiKey = process.env.OPENAI_API_KEY || "";
-  const modelName = process.env.LLM_MODEL || "gpt-4o-mini";
   const circuit = createCircuitBreaker({ failureThreshold: 3, cooldownMs: 30000 });
 
   return {
     /**
-     * plan(): Digunakan oleh Planner Agent.
-     * Dilindungi circuit breaker + exponential backoff.
+     * plan(): Digunakan oleh Planner Agent — routing ke provider sesuai modelManager.
      */
     async plan(prompt, input = {}) {
-      if (!apiKey) throw new Error("OPENAI_API_KEY belum diatur untuk provider openai");
+      const userPrompt = (input && typeof input.message === "string") ? input.message : "Lanjutkan tugas sebelumnya.";
+
+      const runPlanner = async () => {
+        const modelId = modelManager.getModel();
+        if (modelId.startsWith("openai")) {
+          if (!apiKey) throw new Error("OPENAI_API_KEY belum diatur untuk provider openai");
+          const modelName = resolveOpenAiApiModel();
+          return callOpenAI({
+            apiKey,
+            modelName,
+            systemPrompt: prompt,
+            userPrompt,
+          });
+        }
+        return callModelJson({ systemPrompt: prompt, userPrompt });
+      };
 
       if (!circuit.isAllowed()) {
         console.warn(`[LLM] Circuit breaker OPEN — fallback ke respond. State: ${circuit.state}`);
@@ -123,15 +146,11 @@ function createOpenAIProvider() {
       }
 
       try {
-        const parsed = await withRetry(() => callOpenAI({
-          apiKey, modelName,
-          systemPrompt: prompt,
-          userPrompt: (input && typeof input.message === "string") ? input.message : "Lanjutkan tugas sebelumnya.",
-        }), { maxRetries: 2, baseDelayMs: 1000 });
+        const parsed = await withRetry(() => runPlanner(), { maxRetries: 2, baseDelayMs: 1000 });
 
         circuit.recordSuccess();
 
-        console.log(`[LLM-DEBUG] Raw LLM response action: ${parsed?.action || 'null'}, tool: ${parsed?.tool_name || 'none'}, steps: ${parsed?.steps?.length || 0}`);
+        console.log(`[LLM-DEBUG] Raw LLM response action: ${parsed?.action || "null"}, tool: ${parsed?.tool_name || "none"}, steps: ${parsed?.steps?.length || 0}`);
 
         if (!parsed) {
           return normalizePlannerDecision({
@@ -156,22 +175,39 @@ function createOpenAIProvider() {
 
     /**
      * review(): Digunakan oleh Reviewer Agent (Security Gate).
-     * Schema: { approved, reason, suggestedChanges }
      */
     async review(prompt) {
-      if (!apiKey) throw new Error("OPENAI_API_KEY belum diatur untuk provider openai");
+      const runReview = async () => {
+        const modelId = modelManager.getModel();
+        if (modelId.startsWith("openai")) {
+          if (!apiKey) throw new Error("OPENAI_API_KEY belum diatur untuk provider openai");
+          const modelName = resolveOpenAiApiModel();
+          return callOpenAI({
+            apiKey,
+            modelName,
+            systemPrompt: "Kamu adalah security reviewer agent. Kembalikan JSON dengan field: approved (boolean), reason (string), suggestedChanges (array of strings).",
+            userPrompt: prompt,
+            temperature: 0.1,
+          });
+        }
+        const parsed = await callModelJson({
+          systemPrompt: "Kamu adalah security reviewer. Kembalikan HANYA JSON: { \"approved\": boolean, \"reason\": string, \"suggestedChanges\": string[] }",
+          userPrompt: prompt,
+        });
+        if (!parsed) return null;
+        return {
+          approved: parsed.approved ?? true,
+          reason: parsed.reason || "Diizinkan oleh sistem",
+          suggestedChanges: Array.isArray(parsed.suggestedChanges) ? parsed.suggestedChanges : [],
+        };
+      };
 
       if (!circuit.isAllowed()) {
         return { approved: false, reason: "Circuit breaker aktif — reviewer tidak dapat beroperasi.", suggestedChanges: [] };
       }
 
       try {
-        const parsed = await withRetry(() => callOpenAI({
-          apiKey, modelName,
-          systemPrompt: "Kamu adalah security reviewer agent. Kembalikan JSON dengan field: approved (boolean), reason (string), suggestedChanges (array of strings).",
-          userPrompt: prompt,
-          temperature: 0.1,
-        }), { maxRetries: 1, baseDelayMs: 500 });
+        const parsed = await withRetry(() => runReview(), { maxRetries: 1, baseDelayMs: 500 });
 
         circuit.recordSuccess();
 
@@ -179,11 +215,15 @@ function createOpenAIProvider() {
           return { approved: false, reason: "Reviewer: output model tidak valid JSON", suggestedChanges: [] };
         }
 
-        return {
-          approved: parsed.approved ?? true,
-          reason: parsed.reason || "Diizinkan oleh sistem",
-          suggestedChanges: Array.isArray(parsed.suggestedChanges) ? parsed.suggestedChanges : [],
-        };
+        if (parsed.approved !== undefined) {
+          return {
+            approved: parsed.approved ?? true,
+            reason: parsed.reason || "Diizinkan oleh sistem",
+            suggestedChanges: Array.isArray(parsed.suggestedChanges) ? parsed.suggestedChanges : [],
+          };
+        }
+
+        return { approved: false, reason: "Reviewer: format tidak dikenali", suggestedChanges: [] };
       } catch (err) {
         circuit.recordFailure();
         return { approved: false, reason: "Reviewer error: " + err.message, suggestedChanges: [] };
@@ -191,8 +231,7 @@ function createOpenAIProvider() {
     },
 
     /**
-     * embed(): Hasilkan vector embedding dari teks.
-     * Menggunakan text-embedding-3-small (1536 dimensi).
+     * embed(): Hasilkan vector embedding dari teks (hanya OpenAI).
      */
     async embed(text) {
       if (!apiKey) return null;
