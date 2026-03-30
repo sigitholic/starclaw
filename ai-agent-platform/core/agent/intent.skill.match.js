@@ -19,6 +19,23 @@ function extractIP(text) {
 }
 
 /**
+ * Salam percakapan — prioritas di atas command lemah (hanya jika bukan perintah).
+ * @param {string} text
+ * @returns {boolean}
+ */
+function isGreeting(text) {
+  const t = String(text || "").toLowerCase();
+  return (
+    t.includes("halo") ||
+    t.includes("hai") ||
+    t.includes("pagi") ||
+    t.includes("siang") ||
+    t.includes("malam")
+  );
+}
+
+/**
+ * Hanya kata kerja aksi — bukan kata kunci domain (cpu/server) itu di detectSkill.
  * @param {string} text
  * @returns {boolean}
  */
@@ -26,18 +43,10 @@ function isCommand(text) {
   const t = String(text || "").toLowerCase();
   return (
     t.includes("cek") ||
-    t.includes("crk") ||
     t.includes("ping") ||
-    t.includes("jalankan") ||
-    t.includes("ambil") ||
     t.includes("monitor") ||
-    t.includes("cpu") ||
-    t.includes("ram") ||
-    t.includes("memory") ||
-    t.includes("server") ||
-    t.includes("status") ||
-    t.includes("kondisi") ||
-    t.includes("platform")
+    t.includes("ambil") ||
+    t.includes("tampilkan")
   );
 }
 
@@ -47,6 +56,11 @@ function isCommand(text) {
  */
 function planUserIntent(userInput) {
   const msg = typeof userInput === "string" ? userInput : "";
+  // 1) salam → chat, kecuali ada kata perintah eksplisit (mis. "halo cek cpu")
+  if (isGreeting(msg) && !isCommand(msg)) {
+    return { type: "chat", message: msg };
+  }
+  // 2) bukan perintah → chat
   if (!isCommand(msg)) {
     return { type: "chat", message: msg };
   }
@@ -148,7 +162,7 @@ function detectSkill(text) {
 
   if (
     t.includes("monitor") ||
-    (t.includes("jalankan") && (t.includes("cek") || t.includes("crk") || t.includes("periksa")))
+    (t.includes("tampilkan") && (t.includes("cek") || t.includes("crk") || t.includes("periksa")))
   ) {
     return {
       skill: "check-system-health",
@@ -160,7 +174,8 @@ function detectSkill(text) {
     t.includes("cek") ||
     t.includes("status") ||
     t.includes("kondisi") ||
-    t.includes("crk")
+    t.includes("crk") ||
+    t.includes("tampilkan")
   ) {
     return {
       skill: "check-system-health",
@@ -183,6 +198,7 @@ function matchIntentToSkill(message, skillRegistry) {
   const m = message.trim();
   if (!m) return null;
 
+  if (isGreeting(m) && !isCommand(m)) return null;
   if (!isCommand(m)) return null;
 
   const intent = detectSkill(m);
@@ -210,6 +226,7 @@ function matchIntentToSkill(message, skillRegistry) {
 module.exports = {
   normalize,
   extractIP,
+  isGreeting,
   isCommand,
   planUserIntent,
   detectSkill,

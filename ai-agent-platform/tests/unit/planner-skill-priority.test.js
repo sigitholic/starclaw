@@ -8,6 +8,7 @@ const {
   coerceForbiddenToolsToSkill,
   planUserIntent,
   isCommand,
+  isGreeting,
 } = require("../../core/agent/intent.skill.match");
 const { selectRelevantTools, mergePlannerSchemas } = require("../../core/agent/tool.selector");
 const { createDefaultSkillRegistry } = require("../../core/skills/skill.runtime.registry");
@@ -28,6 +29,24 @@ test("isCommand: ping → true", () => {
   assert.equal(isCommand("Ping 192.168.1.1"), true);
 });
 
+test("isGreeting: halo/malam → true; bukan command", () => {
+  assert.equal(isGreeting("Halo Clara"), true);
+  assert.equal(isGreeting("Malam"), true);
+  assert.equal(isCommand("Malam"), false);
+});
+
+test("planUserIntent: salam → chat (bukan skill)", () => {
+  assert.equal(planUserIntent("halo").type, "chat");
+  assert.equal(planUserIntent("malam").type, "chat");
+  assert.equal(planUserIntent("Halo Clara").type, "chat");
+});
+
+test("planUserIntent: salam + perintah → skill (command menang)", () => {
+  const p = planUserIntent("halo cek cpu");
+  assert.equal(p.type, "skill");
+  assert.equal(p.skill, "check-server-resource");
+});
+
 test("matchIntentToSkill: ping → run-system-command dengan target", () => {
   const reg = createDefaultSkillRegistry();
   const raw = matchIntentToSkill("ping 192.168.88.20", reg);
@@ -45,16 +64,9 @@ test("matchIntentToSkill: frasa Indonesia ping ke IP", () => {
   assert.equal(raw.input.target, "192.168.88.20");
 });
 
-test("matchIntentToSkill: typo crk kondisi server → check-server-resource", () => {
+test("matchIntentToSkill: cek cpu server → check-server-resource (bukan dari kata cpu saja)", () => {
   const reg = createDefaultSkillRegistry();
-  const raw = matchIntentToSkill("Crk kondisi server", reg);
-  assert.ok(raw);
-  assert.equal(raw.skill_name, "check-server-resource");
-});
-
-test("matchIntentToSkill: berapa cpu server → check-server-resource", () => {
-  const reg = createDefaultSkillRegistry();
-  const raw = matchIntentToSkill("berapa cpu server", reg);
+  const raw = matchIntentToSkill("Cek CPU server", reg);
   assert.ok(raw);
   assert.equal(raw.skill_name, "check-server-resource");
 });
