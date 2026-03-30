@@ -25,9 +25,16 @@ test("matchIntentToSkill: frasa Indonesia ping ke IP", () => {
   assert.equal(raw.input.target, "192.168.88.20");
 });
 
-test("matchIntentToSkill: typo crk kondisi → check-system-health", () => {
+test("matchIntentToSkill: typo crk kondisi server → check-server-resource", () => {
   const reg = createDefaultSkillRegistry();
   const raw = matchIntentToSkill("Crk kondisi server", reg);
+  assert.ok(raw);
+  assert.equal(raw.skill_name, "check-server-resource");
+});
+
+test("matchIntentToSkill: cek status platform → check-system-health (doctor)", () => {
+  const reg = createDefaultSkillRegistry();
+  const raw = matchIntentToSkill("cek status platform", reg);
   assert.ok(raw);
   assert.equal(raw.skill_name, "check-system-health");
 });
