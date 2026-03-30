@@ -5,13 +5,21 @@
 
 ---
 
-## Status Terkini: v0.3.0 (30 Maret 2026)
+## Status Terkini: v0.4.0 (30 Maret 2026)
+
+### Changelog v0.4.0
+- ✅ G01: Short memory persistence (`session.store.js`) — agent ingat percakapan setelah restart
+- ✅ G03: Self-healing proaktif (`channel-runner.js`) — diagnostik + auto-load plugin saat startup
+- ✅ G04: Auto plugin discovery (`plugin.watcher.js`) — plugin baru di folder langsung terdeteksi
+- ✅ 12 Unit test GenieACS plugin (semua PASS) — `tests/unit/genieacs-plugin.test.js`
+- ✅ Workflow guide: `activate-plugin.md` — panduan aktifkan + konfigurasi plugin
+- 🔧 Fix skill keyword false positive (genieacs match kata "konten")
 
 ---
 
 ## Checklist Implementasi Selesai
 
-### Core Architecture
+### Core Architecture ✅ Lengkap
 - [x] Re-Act Loop (Think → Act → Observe → ulang) via `workflow.engine.js`
 - [x] Planner (LLM-based planning) dengan prompt builder dinamis
 - [x] Executor (eksekusi tool dengan retry + timeout + exponential backoff)
@@ -111,6 +119,19 @@
 - [x] Persistent cron jobs (data/cron-jobs.json, survive restart)
 - [x] Time parser natural language ("jam 4 sore", "besok jam 9")
 
+### Persistence & Autonomy (v0.4.0)
+- [x] Session Memory Persistence — `session.store.js` persist 10 interaksi per agent
+- [x] Auto-load session saat agent init (ingat percakapan setelah restart)
+- [x] Self-healing startup — doctor-tool diagnostik saat channel boot
+- [x] Auto plugin discovery + load dari folder saat startup
+- [x] Plugin Watcher — `plugin.watcher.js` deteksi plugin baru real-time
+
+### Testing
+- [x] 12 unit test GenieACS plugin (`tests/unit/genieacs-plugin.test.js`) — 12/12 PASS
+- [x] Test: plugin load, manifest validation, config set/get/delete/reset
+- [x] Test: session memory persist & restore
+- [x] Test: password masking di display
+
 ### Ops & Quality
 - [x] Node.js version validation (>=18) di startup
 - [x] Auto free port saat restart (cegah EADDRINUSE)
@@ -126,21 +147,21 @@
 
 ### P1 — Kritis untuk Otonomi Penuh
 
-| ID | Gap | Dampak | Kompleksitas |
-|----|-----|--------|-------------|
-| G01 | **Conversation persistence** — short memory reset saat restart, percakapan hilang | Agent tidak bisa "ingat" setelah restart | Sedang — tambah JSON persist untuk short memory |
-| G02 | **Streaming response** — jawaban dikirim setelah selesai, bukan real-time | UX lambat untuk task panjang (>10 detik) | Tinggi — butuh SSE atau stream API OpenAI |
-| G03 | **Self-healing proaktif** — agent tidak tahu kondisi platform sendiri saat startup | Bisa gagal diam-diam | Rendah — jalankan doctor-tool di startup |
-| G04 | **Auto plugin discovery** — plugin baru di folder tidak dimuat otomatis | Harus manual `/plugin load` | Rendah — watch folder plugins/ |
+| ID | Gap | Status | Dampak |
+|----|-----|--------|--------|
+| G01 | **Conversation persistence** | ✅ SELESAI 30/3/26 | `session.store.js` — persist 10 interaksi terakhir per agent |
+| G02 | **Streaming response** | ❌ Belum | UX lambat task panjang — butuh SSE/stream OpenAI |
+| G03 | **Self-healing proaktif** | ✅ SELESAI 30/3/26 | `channel-runner.js` — doctor-tool startup + auto-load plugins |
+| G04 | **Auto plugin discovery** | ✅ SELESAI 30/3/26 | `plugin.watcher.js` + scan folder saat startup |
 
 ### P2 — Penting untuk Skala
 
-| ID | Gap | Dampak | Kompleksitas |
-|----|-----|--------|-------------|
-| G05 | **Infrastructure real** — queue, redis, postgres masih stub | Tidak bisa deploy multi-instance | Tinggi |
-| G06 | **tiktoken** — estimasi token kasar (karakter/3), tidak akurat untuk semua model | Context bisa overflow di model tertentu | Rendah — `npm install tiktoken` |
-| G07 | **Rate limiting & backpressure** — tidak ada limit request ke LLM/tools | Bisa spam API saat loop | Sedang |
-| G08 | **Unit test coverage** — hanya 1 test file, core logic tidak ada test | Regresi tidak terdeteksi | Tinggi |
+| ID | Gap | Status | Dampak |
+|----|-----|--------|--------|
+| G05 | **Infrastructure real** | ❌ Belum | queue, redis, postgres masih stub |
+| G06 | **tiktoken** | ❌ Belum | Estimasi token lebih akurat `npm install tiktoken` |
+| G07 | **Rate limiting** | ❌ Belum | Cegah spam ke LLM saat loop |
+| G08 | **Unit test coverage** | 🔄 Partial | 1 test file → 12 test (genieacs), butuh lebih banyak |
 
 ### P3 — Nice to Have
 

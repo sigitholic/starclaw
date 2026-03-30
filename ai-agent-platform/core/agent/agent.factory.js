@@ -26,7 +26,8 @@ function createBaseAgent({
   const reviewer = new Reviewer({ llmProvider: selectedLlmProvider, logger });
   
   const executor = new Executor({ toolsRegistry, logger });
-  const memory = memoryFactory();
+  // Teruskan nama agent ke memory untuk session persistence
+  const memory = memoryFactory(name);
 
   return new BaseAgent({
     name,
