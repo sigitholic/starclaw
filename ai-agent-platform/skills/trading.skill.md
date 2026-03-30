@@ -1,3 +1,10 @@
+---
+name: trading
+description: Analisis pasar forex/saham/crypto, buat EA MQL5, eksekusi order MT5
+requires.env: []
+plugin: trading
+---
+
 # Skill: Trading & Financial Analysis
 
 ## Kapan Skill Ini Aktif

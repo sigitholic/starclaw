@@ -1,3 +1,10 @@
+---
+name: genieacs
+description: Manajemen perangkat CPE/ONT ISP via GenieACS ACS server (TR-069/CWMP)
+requires.env: []
+plugin: genieacs-monitor
+---
+
 # Skill: GenieACS & TR-069 Device Management
 
 ## Kapan Skill Ini Aktif

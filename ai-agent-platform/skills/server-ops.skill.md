@@ -1,3 +1,9 @@
+---
+name: server-ops
+description: Monitoring server, manage service, deploy aplikasi, konfigurasi infrastruktur
+requires.env: []
+---
+
 # Skill: Server Operations & DevOps
 
 ## Kapan Skill Ini Aktif

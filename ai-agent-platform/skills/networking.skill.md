@@ -1,3 +1,9 @@
+---
+name: networking
+description: Diagnosa jaringan, konfigurasi MikroTik, monitoring bandwidth dan traffic
+requires.env: []
+---
+
 # Skill: Networking & Network Operations
 
 ## Kapan Skill Ini Aktif

@@ -34,6 +34,49 @@ function loadSkillFile(filePath) {
   }
 }
 
+/**
+ * Parse frontmatter YAML sederhana dari SKILL.md.
+ * Format:
+ *   ---
+ *   name: skill-name
+ *   requires:
+ *     env: [VAR1, VAR2]
+ *   ---
+ */
+function parseSkillFrontmatter(content) {
+  if (!content || !content.startsWith("---")) return {};
+  const end = content.indexOf("---", 3);
+  if (end === -1) return {};
+  const yaml = content.slice(3, end).trim();
+  const meta = {};
+  for (const line of yaml.split("\n")) {
+    const match = line.match(/^\s*([\w-]+)\s*:\s*(.+)$/);
+    if (match) {
+      const key = match[1].trim();
+      const val = match[2].trim();
+      // Parse simple array: [VAR1, VAR2]
+      if (val.startsWith("[")) {
+        meta[key] = val.slice(1, -1).split(",").map(s => s.trim()).filter(Boolean);
+      } else {
+        meta[key] = val;
+      }
+    }
+  }
+  return meta;
+}
+
+/**
+ * Cek apakah skill memenuhi syarat (requires.env terpenuhi dari plugin config atau process.env).
+ */
+function isSkillEligible(filePath) {
+  const content = loadSkillFile(filePath);
+  if (!content) return false;
+  const meta = parseSkillFrontmatter(content);
+  const requiresEnv = Array.isArray(meta["requires.env"]) ? meta["requires.env"] : [];
+  // Skill eligible jika semua required env tersedia
+  return requiresEnv.every(envKey => !!process.env[envKey]);
+}
+
 function findSkillFile(name) {
   const candidates = [
     path.join(SKILLS_DIR, "custom", `${name}.skill.md`),
@@ -78,6 +121,7 @@ const SKILL_KEYWORDS = {
   "networking":   /ip|subnet|vlan|bgp|ospf|mikrotik|switch|firewall|ping|traceroute|bandwidth|latency/i,
   "research":     /riset|research|cari informasi|temukan|investigasi|kumpulkan data|competitive/i,
   "trading":      /trading|trader|forex|saham|crypto|bitcoin|gold|xauusd|eurusd|gbpusd|mt5|metatrader|ea|expert.advisor|mql5|indikator|rsi|macd|moving.average|bollinger|candlestick|teknikal|fundamental|order|buy|sell|lot|pips|stop.loss|take.profit|backtest|robot.trading/i,
+  "coding":       /plugin baru|buat plugin|create plugin|plugin config|setting plugin|konfigurasi plugin/i,
 };
 
 function detectRelevantSkills(message) {
@@ -127,10 +171,33 @@ function autoLoadSkills(message, agentSkills = []) {
   return loadSkills(allSkills);
 }
 
+/**
+ * List semua skill beserta status (eligible/missing config).
+ */
+function listAvailableSkillsWithStatus() {
+  const skills = listAvailableSkills();
+  return skills.map(name => {
+    const filePath = findSkillFile(name);
+    const content = filePath ? loadSkillFile(filePath) : null;
+    const meta = content ? parseSkillFrontmatter(content) : {};
+    const requiresEnv = Array.isArray(meta["requires.env"]) ? meta["requires.env"] : [];
+    const missingEnv = requiresEnv.filter(k => !process.env[k]);
+    return {
+      name,
+      eligible: missingEnv.length === 0,
+      requiresEnv,
+      missingEnv,
+    };
+  });
+}
+
 module.exports = {
   loadSkills,
   autoLoadSkills,
   listAvailableSkills,
+  listAvailableSkillsWithStatus,
   detectRelevantSkills,
   findSkillFile,
+  isSkillEligible,
+  parseSkillFrontmatter,
 };

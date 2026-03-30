@@ -1,3 +1,9 @@
+---
+name: research
+description: Riset topik, investigasi kompetitor, pengumpulan dan analisis data dari web
+requires.env: []
+---
+
 # Skill: Research & Information Gathering
 
 ## Kapan Skill Ini Aktif

@@ -1,0 +1,12 @@
+{
+  "name": "hello-world",
+  "version": "1.0.0",
+  "description": "Plugin contoh minimal — template referensi untuk membuat plugin baru",
+  "author": "Starclaw",
+  "configSchema": [],
+  "skills": [],
+  "tools": ["hello-plugin"],
+  "requires": {
+    "env": []
+  }
+}

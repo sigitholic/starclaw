@@ -1,0 +1,32 @@
+{
+  "name": "genieacs-monitor",
+  "version": "2.0.0",
+  "description": "Manajemen perangkat CPE/ONT ISP via GenieACS ACS server (TR-069/CWMP)",
+  "author": "Starclaw",
+  "configSchema": [
+    {
+      "key": "GENIEACS_URL",
+      "description": "URL ACS server GenieACS",
+      "example": "http://localhost:7557",
+      "required": true,
+      "sensitive": false
+    },
+    {
+      "key": "GENIEACS_USER",
+      "description": "Username GenieACS (kosongkan jika tanpa auth)",
+      "required": false,
+      "sensitive": false
+    },
+    {
+      "key": "GENIEACS_PASS",
+      "description": "Password GenieACS",
+      "required": false,
+      "sensitive": true
+    }
+  ],
+  "skills": ["genieacs", "networking"],
+  "tools": ["genieacs-tool"],
+  "requires": {
+    "env": []
+  }
+}

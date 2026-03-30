@@ -1,3 +1,9 @@
+---
+name: coding
+description: Menulis, debug, dan review kode; automasi script; arsitektur sistem
+requires.env: []
+---
+
 # Skill: Coding & Software Development
 
 ## Kapan Skill Ini Aktif

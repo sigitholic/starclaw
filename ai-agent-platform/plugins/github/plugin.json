@@ -1,0 +1,20 @@
+{
+  "name": "github",
+  "version": "1.0.0",
+  "description": "Integrasi GitHub — baca repository, lihat issues, dan informasi repo",
+  "author": "Starclaw",
+  "configSchema": [
+    {
+      "key": "GITHUB_TOKEN",
+      "description": "Personal Access Token GitHub (untuk akses private repo)",
+      "example": "ghp_xxxxxxxxxxxx",
+      "required": false,
+      "sensitive": true
+    }
+  ],
+  "skills": ["coding"],
+  "tools": ["github-tool"],
+  "requires": {
+    "env": []
+  }
+}

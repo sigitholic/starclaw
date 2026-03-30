@@ -3,6 +3,7 @@
 const fs = require("fs");
 const path = require("path");
 const { validateToolContract } = require("../utils/validator");
+const { injectPluginConfig, readPluginConfig, readPluginManifest } = require("./plugin.config.store");
 
 /**
  * Plugin Manager — dynamic plugin loader & lifecycle manager.
@@ -68,8 +69,15 @@ function createPluginManager({ toolsRegistry, orchestrator = null } = {}) {
     // Clear require cache agar bisa reload
     delete require.cache[normalizedPath];
 
+    // Inject config plugin sebelum load (agar env vars tersedia saat module di-require)
+    const pluginConfigName = fallbackName || path.basename(path.dirname(normalizedPath));
+    const restoreEnv = injectPluginConfig(pluginConfigName);
+
     const pluginModule = require(normalizedPath);
     const name = pluginModule.name || fallbackName;
+
+    // Restore env setelah load (config tetap ter-inject selama proses berjalan)
+    // Tidak perlu restore karena config harus persist selama plugin aktif
 
     if (!name) {
       return { success: false, error: "Plugin harus punya properti 'name'" };
@@ -115,6 +123,10 @@ function createPluginManager({ toolsRegistry, orchestrator = null } = {}) {
       }
     }
 
+    // Baca config keys yang sudah disimpan untuk info
+    const savedConfig = readPluginConfig(name);
+    const configKeys = Object.keys(savedConfig);
+
     plugins.set(name, {
       meta: {
         name,
@@ -125,10 +137,12 @@ function createPluginManager({ toolsRegistry, orchestrator = null } = {}) {
       tools: registeredTools,
       workflows: registeredWorkflows,
       status: "active",
+      configKeys,
     });
 
-    console.log(`[PluginManager] Plugin '${name}' v${pluginModule.version || "0.0.0"} dimuat (${registeredTools.length} tools, ${registeredWorkflows.length} workflows)`);
-    return { success: true, name, tools: registeredTools, workflows: registeredWorkflows };
+    const configNote = configKeys.length > 0 ? ` (config: ${configKeys.join(", ")})` : "";
+    console.log(`[PluginManager] Plugin '${name}' v${pluginModule.version || "0.0.0"} dimuat (${registeredTools.length} tools, ${registeredWorkflows.length} workflows${configNote})`);
+    return { success: true, name, tools: registeredTools, workflows: registeredWorkflows, configKeys };
   }
 
   /**
@@ -167,14 +181,30 @@ function createPluginManager({ toolsRegistry, orchestrator = null } = {}) {
    * Daftar semua plugin yang terinstall.
    */
   function listPlugins() {
-    return Array.from(plugins.values()).map(p => ({
-      name: p.meta.name,
-      version: p.meta.version,
-      description: p.meta.description,
-      tools: p.tools,
-      workflows: p.workflows,
-      status: p.status,
-    }));
+    return Array.from(plugins.values()).map(p => {
+      const manifest = readPluginManifest(p.meta.name);
+      const savedConfig = readPluginConfig(p.meta.name);
+      const schema = manifest && manifest.configSchema ? manifest.configSchema : [];
+
+      // Cek required fields yang belum dikonfigurasi
+      const missingConfig = schema
+        .filter(f => f.required && !savedConfig[f.key] && !process.env[f.key])
+        .map(f => f.key);
+
+      return {
+        name: p.meta.name,
+        version: p.meta.version,
+        description: p.meta.description,
+        tools: p.tools,
+        workflows: p.workflows,
+        status: missingConfig.length > 0 ? "config-needed" : p.status,
+        configuredKeys: Object.keys(savedConfig),
+        missingConfig,
+        hint: missingConfig.length > 0
+          ? `Gunakan: plugin-config-tool schema ${p.meta.name} untuk lihat parameter yang dibutuhkan`
+          : null,
+      };
+    });
   }
 
   return {

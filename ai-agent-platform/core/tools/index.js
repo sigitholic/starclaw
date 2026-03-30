@@ -19,6 +19,7 @@ const { createDatabaseTool } = require("./database.tool");
 const { createMarketDataTool } = require("./market-data.tool");
 const { createMql5Tool } = require("./mql5.tool");
 const { createMt5BridgeTool } = require("./mt5-bridge.tool");
+const { createPluginConfigTool } = require("./plugin-config.tool");
 const { validateToolContract } = require("../utils/validator");
 const { createPluginManager } = require("../plugins/plugin.manager");
 const { createSubAgentManager } = require("../agent/sub-agent.manager");
@@ -79,6 +80,8 @@ function createToolRegistry(customTools = []) {
     createMarketDataTool(),
     createMql5Tool(),
     createMt5BridgeTool(),
+    // Plugin & config management
+    createPluginConfigTool(),
     ...customTools,
   ];
 

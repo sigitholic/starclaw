@@ -1,0 +1,61 @@
+{
+  "name": "social-media",
+  "version": "1.0.0",
+  "description": "Post konten ke Telegram, Twitter/X, webhook, dan kirim notifikasi email/push",
+  "author": "Starclaw",
+  "configSchema": [
+    {
+      "key": "TELEGRAM_BOT_TOKEN",
+      "description": "Token bot Telegram dari @BotFather",
+      "required": true,
+      "sensitive": true
+    },
+    {
+      "key": "TWITTER_BEARER_TOKEN",
+      "description": "Bearer token Twitter/X API v2",
+      "required": false,
+      "sensitive": true
+    },
+    {
+      "key": "MAILGUN_API_KEY",
+      "description": "API key Mailgun untuk kirim email",
+      "required": false,
+      "sensitive": true
+    },
+    {
+      "key": "MAILGUN_DOMAIN",
+      "description": "Domain Mailgun (contoh: mg.domain.com)",
+      "required": false,
+      "sensitive": false
+    },
+    {
+      "key": "SENDGRID_API_KEY",
+      "description": "API key SendGrid (alternatif Mailgun)",
+      "required": false,
+      "sensitive": true
+    },
+    {
+      "key": "SOCIAL_WEBHOOK_URL",
+      "description": "URL webhook default (Discord/Slack/Zapier/dll)",
+      "required": false,
+      "sensitive": false
+    },
+    {
+      "key": "PUSHOVER_TOKEN",
+      "description": "Token Pushover untuk push notification ke HP",
+      "required": false,
+      "sensitive": true
+    },
+    {
+      "key": "PUSHOVER_USER",
+      "description": "User key Pushover",
+      "required": false,
+      "sensitive": true
+    }
+  ],
+  "skills": ["social-media"],
+  "tools": ["social-media-tool", "notification-tool"],
+  "requires": {
+    "env": ["TELEGRAM_BOT_TOKEN"]
+  }
+}

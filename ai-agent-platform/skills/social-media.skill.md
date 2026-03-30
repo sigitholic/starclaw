@@ -1,3 +1,10 @@
+---
+name: social-media
+description: Membuat konten, posting ke Telegram, Twitter/X, webhook, dan jadwalkan
+requires.env: []
+plugin: social-media
+---
+
 # Skill: Social Media Management
 
 ## Kapan Skill Ini Aktif
