@@ -42,16 +42,15 @@ function spawnChannel() {
   const channel = run("node", ["scripts/channel-runner.js"], "channel");
 
   channel.on("exit", (code, signal) => {
-    // Jika sedang shutdown atau dihentikan oleh signal — tidak perlu restart
+    // Dihentikan oleh signal (SIGTERM dari shutdown) atau sedang shutdown — tidak restart
     if (shuttingDown || signal) return;
 
     if (code !== 0) {
+      // Crash — restart otomatis setelah 3 detik
       console.error(`[start-all] channel crash (kode ${code}), restart dalam 3 detik...`);
-    } else {
-      // Exit normal (mode local/cli selesai task): restart supaya tetap siaga
-      console.log("[start-all] channel selesai, restart dalam 3 detik...");
+      setTimeout(spawnChannel, 3000);
     }
-    setTimeout(spawnChannel, 3000);
+    // Exit normal (code 0) — biarkan, channel sudah menyelesaikan tugasnya dengan baik
   });
 
   return channel;

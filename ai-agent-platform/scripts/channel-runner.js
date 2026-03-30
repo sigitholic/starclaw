@@ -15,11 +15,13 @@ async function runLocalChannel(orchestrator) {
     response: result.finalResponse,
   });
 
-  // Tetap aktif — tunggu sinyal shutdown alih-alih langsung exit
+  // Tahan event loop agar proses tidak exit (signal listener saja tidak cukup di Node.js)
+  const keepAlive = setInterval(() => {}, 1 << 30);
+
   console.log("[channel:local] Channel siaga. Tekan Ctrl+C untuk berhenti.");
   await new Promise((resolve) => {
-    process.once("SIGINT", resolve);
-    process.once("SIGTERM", resolve);
+    process.once("SIGINT", () => { clearInterval(keepAlive); resolve(); });
+    process.once("SIGTERM", () => { clearInterval(keepAlive); resolve(); });
   });
 }
 
