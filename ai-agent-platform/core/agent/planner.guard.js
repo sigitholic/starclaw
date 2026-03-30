@@ -26,7 +26,7 @@ const MAX_REGENERATE_ATTEMPTS = 2;
  * @param {object} logger - Logger instance
  * @returns {{ valid: boolean, correctedPlan: object, issues: [] }}
  */
-function guardPlan(plan, toolsRegistry, logger) {
+function guardPlan(plan, toolsRegistry, skillRegistry, logger) {
   const issues = [];
   const correctedSteps = [];
 
@@ -35,6 +35,35 @@ function guardPlan(plan, toolsRegistry, logger) {
 
     if (!toolName) {
       issues.push({ step: step.name, error: "Step tidak memiliki field 'tool'", fatal: true });
+      correctedSteps.push(step);
+      continue;
+    }
+
+    if (step.isSkill) {
+      if (!skillRegistry) {
+        issues.push({
+          step: step.name,
+          error: "Skill registry tidak tersedia",
+          fatal: true,
+        });
+        correctedSteps.push(step);
+        continue;
+      }
+      if (typeof skillRegistry.has === "function" && skillRegistry.has(toolName)) {
+        correctedSteps.push(step);
+        continue;
+      }
+      logger.error("PlannerGuard: skill tidak ditemukan", {
+        requested: toolName,
+        available: skillRegistry.list ? skillRegistry.list() : [],
+        step: step.name,
+      });
+      issues.push({
+        step: step.name,
+        error: `Skill '${toolName}' tidak ada di skill registry`,
+        available: skillRegistry.list ? skillRegistry.list() : [],
+        fatal: true,
+      });
       correctedSteps.push(step);
       continue;
     }
@@ -93,19 +122,27 @@ function guardPlan(plan, toolsRegistry, logger) {
 /**
  * Buat prompt regenerasi yang minta LLM pilih tool yang valid.
  */
-function buildRegeneratePrompt(originalMessage, invalidTools, availableTools) {
+function buildRegeneratePrompt(originalMessage, invalidTools, availableTools, availableSkills = []) {
+  const skillLines = availableSkills.length > 0
+    ? [
+      ``,
+      `Skill yang TERSEDIA (utamakan untuk tugas kompleks / multi-langkah):`,
+      availableSkills.map(s => `- ${s.name}: ${s.description}`).join("\n"),
+    ]
+    : [];
   return [
-    `PERBAIKAN DIPERLUKAN: Planner sebelumnya memilih tool yang tidak tersedia.`,
+    `PERBAIKAN DIPERLUKAN: Planner sebelumnya memilih tool atau skill yang tidak tersedia.`,
     ``,
-    `Tool yang diminta tapi TIDAK ADA: ${invalidTools.join(", ")}`,
+    `Yang diminta tapi TIDAK ADA: ${invalidTools.join(", ")}`,
     ``,
     `Tool yang TERSEDIA di registry:`,
     availableTools.map(t => `- ${t.name}: ${t.description}`).join("\n"),
+    ...skillLines,
     ``,
-    `Buat ulang plan untuk perintah berikut menggunakan HANYA tool dari daftar di atas:`,
+    `Buat ulang plan untuk perintah berikut menggunakan HANYA nama dari daftar di atas (tool atau skill).`,
     `"${originalMessage}"`,
     ``,
-    `WAJIB: Hanya gunakan tool_name dari daftar di atas. Jangan gunakan tool yang tidak ada.`,
+    `WAJIB: Untuk tugas sederhana satu langkah gunakan action "tool"; untuk tugas kompleks atau yang memetakan ke capability tingkat tugas, utamakan action "skill" dengan skill_name dari daftar skill.`,
   ].join("\n");
 }
 
@@ -113,9 +150,10 @@ function buildRegeneratePrompt(originalMessage, invalidTools, availableTools) {
  * PlannerGuard class — wrapper di sekitar Planner yang memastikan output valid.
  */
 class PlannerGuard {
-  constructor({ planner, toolsRegistry, llmProvider, logger }) {
+  constructor({ planner, toolsRegistry, skillRegistry, llmProvider, logger }) {
     this.planner = planner;
     this.toolsRegistry = toolsRegistry;
+    this.skillRegistry = skillRegistry || null;
     this.llmProvider = llmProvider;
     this.logger = logger;
   }
@@ -137,7 +175,7 @@ class PlannerGuard {
 
       // Guard: validasi semua tool names
       const { valid, correctedPlan, issues, autoCorrections } = guardPlan(
-        rawPlan, this.toolsRegistry, this.logger
+        rawPlan, this.toolsRegistry, this.skillRegistry, this.logger
       );
 
       if (autoCorrections > 0) {
@@ -168,10 +206,14 @@ class PlannerGuard {
 
       // Buat prompt regenerasi dengan daftar tool yang valid
       const availableTools = this.toolsRegistry.getToolList();
+      const availableSkills = this.skillRegistry && typeof this.skillRegistry.getSkillList === "function"
+        ? this.skillRegistry.getSkillList()
+        : [];
       const regeneratePrompt = buildRegeneratePrompt(
         input.message || "",
         fatalIssues.map(i => i.error),
-        availableTools
+        availableTools,
+        availableSkills
       );
 
       // Override pesan untuk regenerasi
@@ -196,10 +238,11 @@ class PlannerGuard {
       gaps: [],
       recommendations: [],
       finalResponse: [
-        "Tidak dapat menjalankan perintah karena tool yang dibutuhkan tidak tersedia.",
+        "Tidak dapat menjalankan perintah karena tool atau skill yang dibutuhkan tidak tersedia.",
         `Tool tersedia: ${this.toolsRegistry.list().join(", ")}`,
+        this.skillRegistry && this.skillRegistry.list ? `Skill tersedia: ${this.skillRegistry.list().join(", ")}` : "",
         `Masalah: ${lastIssues.map(i => i.error).join("; ")}`,
-      ].join(" "),
+      ].filter(Boolean).join(" "),
       plannerDecision: "respond",
     };
   }
