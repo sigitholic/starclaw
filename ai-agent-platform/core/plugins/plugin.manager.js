@@ -134,7 +134,16 @@ function createPluginManager({ toolsRegistry, orchestrator = null } = {}) {
     injectPluginConfig(pluginConfigName);
 
     const pluginModule = require(normalizedPath);
-    const name = pluginModule.name || fallbackName;
+    const isSingleToolPlugin =
+      !Array.isArray(pluginModule.tools) &&
+      typeof pluginModule.run === "function" &&
+      typeof pluginModule.name === "string" &&
+      pluginModule.name.trim() !== "";
+
+    // Plugin map key: folder name untuk format satu-tool (name = nama tool), agar konsisten dengan plugin.json
+    const name = isSingleToolPlugin
+      ? pluginConfigName
+      : (pluginModule.name || fallbackName);
 
     if (!name) {
       return { success: false, error: "Plugin harus punya properti 'name'" };
@@ -144,23 +153,34 @@ function createPluginManager({ toolsRegistry, orchestrator = null } = {}) {
       return { success: false, error: `Plugin '${name}' sudah dimuat` };
     }
 
-    // Register tools
+    // Register tools (format plugin: tools[] ATAU satu tool langsung { name, run, ... })
     const registeredTools = [];
-    if (Array.isArray(pluginModule.tools)) {
-      for (const tool of pluginModule.tools) {
-        try {
-          validateToolContract(tool);
-          if (toolsRegistry && typeof toolsRegistry.register === "function") {
-            if (typeof toolsRegistry.has === "function" && toolsRegistry.has(tool.name)) {
-              console.warn(`[PluginManager] Tool '${tool.name}' sudah ada di registry — lewati duplikat`);
-            } else {
-              toolsRegistry.register(tool);
-            }
+    const toolsToRegister = Array.isArray(pluginModule.tools)
+      ? pluginModule.tools
+      : (typeof pluginModule.run === "function" && pluginModule.name
+        ? [{
+            name: pluginModule.name,
+            description: pluginModule.description || "",
+            parameters: pluginModule.parameters || {},
+            async run(input) {
+              return pluginModule.run(input);
+            },
+          }]
+        : []);
+
+    for (const tool of toolsToRegister) {
+      try {
+        validateToolContract(tool);
+        if (toolsRegistry && typeof toolsRegistry.register === "function") {
+          if (typeof toolsRegistry.has === "function" && toolsRegistry.has(tool.name)) {
+            console.warn(`[PluginManager] Tool '${tool.name}' sudah ada di registry — lewati duplikat`);
+          } else {
+            toolsRegistry.register(tool);
           }
-          registeredTools.push(tool.name);
-        } catch (err) {
-          console.warn(`[PluginManager] Tool '${tool.name || "unknown"}' dari plugin '${name}' gagal validasi: ${err.message}`);
         }
+        registeredTools.push(tool.name);
+      } catch (err) {
+        console.warn(`[PluginManager] Tool '${tool.name || "unknown"}' dari plugin '${name}' gagal validasi: ${err.message}`);
       }
     }
 
