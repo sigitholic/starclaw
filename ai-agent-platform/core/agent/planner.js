@@ -5,10 +5,18 @@ const { EVENT_TYPES } = require("../events/event.types");
 const { selectRelevantTools, extractPreviousTools, mergePlannerSchemas } = require("./tool.selector");
 const {
   matchIntentToSkill,
-  fallbackToSkill,
+  planUserIntent,
   coerceForbiddenToolsToSkill,
 } = require("./intent.skill.match");
 const { modelManager } = require("../llm/modelManager");
+
+/**
+ * Pesan yang membutuhkan planner LLM (tool/skill multi-langkah), bukan short-circuit chat/skill.
+ */
+function needsStructuredPlannerMessage(message) {
+  const m = String(message || "");
+  return /audit|map|analy|gap|openclaw|architecture|arsitektur/i.test(m);
+}
 
 class Planner {
   constructor({ llmProvider, promptBuilder, toolsRegistry, skillRegistry, logger }) {
@@ -59,18 +67,52 @@ class Planner {
     const canShortCircuitIntent =
       !input.__isRegenerate && (!input.observations || input.observations.length === 0);
 
-    // Skill-first deterministik: tanpa observasi, selalu skill (bukan tool langsung)
-    if (canShortCircuitIntent && this.skillRegistry) {
-      const intentSkill =
-        matchIntentToSkill(message, this.skillRegistry) ||
-        (typeof this.skillRegistry.has === "function" && this.skillRegistry.has("check-system-health")
-          ? fallbackToSkill()
-          : null);
-      if (intentSkill) {
-        const normalizedPlan = normalizePlannerDecision(intentSkill);
+    // Intent: chat vs skill — tanpa observasi, jangan paksa semua input ke skill
+    if (canShortCircuitIntent && this.skillRegistry && !needsStructuredPlannerMessage(message)) {
+      const intent = planUserIntent(message);
+      if (intent.type === "chat") {
+        const chatFn = this.llmProvider && typeof this.llmProvider.chat === "function"
+          ? this.llmProvider.chat.bind(this.llmProvider)
+          : null;
+        const reply = chatFn
+          ? await chatFn(intent.message || message)
+          : String(intent.message || message || "");
+        const normalizedPlan = normalizePlannerDecision({
+          action: "respond",
+          response: reply,
+          summary: "Percakapan (bukan perintah skill)",
+        });
+        normalizedPlan.intentType = "chat";
         // eslint-disable-next-line no-console
         console.log("PLANNER RESULT:", normalizedPlan);
-        this.logger.info("Planner decision (skill-first deterministik)", {
+        this.logger.info("Planner decision (chat intent)", {
+          decision: normalizedPlan.plannerDecision,
+          intentType: "chat",
+        });
+        if (eventBus) {
+          await eventBus.emit(EVENT_TYPES.PLANNER_DECISION, {
+            timestamp: new Date().toISOString(),
+            agent: agentName,
+            payload: {
+              decision: normalizedPlan.plannerDecision,
+              stepCount: normalizedPlan.steps.length,
+              summary: normalizedPlan.summary,
+              toolsInPrompt: selectedSchemas.length,
+              source: "intent-chat",
+              intentType: "chat",
+            },
+          });
+        }
+        return normalizedPlan;
+      }
+
+      const intentSkill = matchIntentToSkill(message, this.skillRegistry);
+      if (intentSkill) {
+        const normalizedPlan = normalizePlannerDecision(intentSkill);
+        normalizedPlan.intentType = "skill";
+        // eslint-disable-next-line no-console
+        console.log("PLANNER RESULT:", normalizedPlan);
+        this.logger.info("Planner decision (skill intent deterministik)", {
           decision: normalizedPlan.plannerDecision,
           skill: normalizedPlan.steps[0]?.tool,
         });
@@ -84,6 +126,7 @@ class Planner {
               summary: normalizedPlan.summary,
               toolsInPrompt: selectedSchemas.length,
               source: "intent-skill-match",
+              intentType: "skill",
             },
           });
         }

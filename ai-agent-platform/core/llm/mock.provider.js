@@ -6,6 +6,12 @@
  */
 function createMockProvider() {
   return {
+    async chat(userMessage) {
+      const m = typeof userMessage === "string" ? userMessage.trim() : "";
+      if (!m) return "Silakan kirim pesan.";
+      return `Balasan mock: ${m}`;
+    },
+
     async plan(prompt, input = {}) {
       const snapshot = input.openclawSnapshot || {};
       const modules = snapshot.modules || [];

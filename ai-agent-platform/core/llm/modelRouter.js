@@ -111,6 +111,35 @@ function normalizeToolResult(raw) {
   };
 }
 
+/**
+ * Obrolan teks bebas (bukan JSON) — untuk jalur chat planner.
+ */
+async function callOpenAIChatText({ apiKey, modelName, systemPrompt, userPrompt, temperature = 0.5 }) {
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: modelName,
+      temperature,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`OpenAI API error: ${response.status} ${errText}`);
+  }
+
+  const resBody = await response.json();
+  return resBody?.choices?.[0]?.message?.content || "";
+}
+
 async function callOpenAIChat({ apiKey, modelName, systemPrompt, userPrompt, jsonMode = true }) {
   const body = {
     model: modelName,
@@ -147,6 +176,38 @@ async function callOpenAIChat({ apiKey, modelName, systemPrompt, userPrompt, jso
   }
 }
 
+async function callAnthropicMessagesText({ apiKey, modelName, systemPrompt, userPrompt, temperature = 0.5 }) {
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: modelName,
+      max_tokens: 4096,
+      temperature,
+      system: systemPrompt,
+      messages: [
+        {
+          role: "user",
+          content: userPrompt,
+        },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Anthropic API error: ${response.status} ${errText}`);
+  }
+
+  const resBody = await response.json();
+  const textBlock = (resBody.content || []).find((c) => c.type === "text");
+  return textBlock?.text || "";
+}
+
 async function callAnthropicMessages({ apiKey, modelName, systemPrompt, userPrompt }) {
   const response = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -181,6 +242,24 @@ async function callAnthropicMessages({ apiKey, modelName, systemPrompt, userProm
   } catch (_err) {
     return null;
   }
+}
+
+async function callGeminiText({ apiKey, modelName, systemPrompt, userPrompt }) {
+  let GoogleGenerativeAI;
+  try {
+    ({ GoogleGenerativeAI } = require("@google/generative-ai"));
+  } catch (_e) {
+    throw new Error("Paket @google/generative-ai belum terpasang");
+  }
+
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({
+    model: modelName,
+    systemInstruction: systemPrompt,
+  });
+
+  const result = await model.generateContent(userPrompt);
+  return result.response.text();
 }
 
 async function callGeminiJson({ apiKey, modelName, systemPrompt, userPrompt }) {
@@ -289,6 +368,54 @@ async function callModelJson({ systemPrompt, userPrompt }) {
 }
 
 /**
+ * Obrolan teks bebas — sama routing dengan callModelJson, tanpa mode JSON.
+ * @param {{ systemPrompt?: string, userPrompt: string }} opts
+ * @returns {Promise<string>}
+ */
+async function callChatText({ systemPrompt = "Kamu adalah asisten yang membantu pengguna.", userPrompt }) {
+  const fullId = modelManager.getModel();
+  const route = ROUTING[fullId];
+  if (!route) {
+    throw new Error(`Model tidak dikenal di router: ${fullId}`);
+  }
+
+  if (route.provider === "openai") {
+    const apiKey = process.env.OPENAI_API_KEY || "";
+    if (!apiKey) throw new Error("OPENAI_API_KEY belum diatur");
+    return callOpenAIChatText({
+      apiKey,
+      modelName: route.apiModel,
+      systemPrompt,
+      userPrompt,
+    });
+  }
+
+  if (route.provider === "anthropic") {
+    const apiKey = process.env.ANTHROPIC_API_KEY || "";
+    if (!apiKey) throw new Error("ANTHROPIC_API_KEY belum diatur");
+    return callAnthropicMessagesText({
+      apiKey,
+      modelName: route.apiModel,
+      systemPrompt,
+      userPrompt,
+    });
+  }
+
+  if (route.provider === "google") {
+    const apiKey = process.env.GEMINI_API_KEY || "";
+    if (!apiKey) throw new Error("GEMINI_API_KEY belum diatur");
+    return callGeminiText({
+      apiKey,
+      modelName: route.apiModel,
+      systemPrompt,
+      userPrompt,
+    });
+  }
+
+  throw new Error(`Provider tidak diimplementasi: ${route.provider}`);
+}
+
+/**
  * Teks bebas (untuk embedding ringan / debug) — opsional
  */
 async function callModel(prompt) {
@@ -314,6 +441,7 @@ async function callModel(prompt) {
 module.exports = {
   extractSuccessPayload,
   callModel,
+  callChatText,
   callModelJson,
   /** @deprecated gunakan callModelJson */
   callModelWithJsonPlan: function callModelWithJsonPlan(opts) {

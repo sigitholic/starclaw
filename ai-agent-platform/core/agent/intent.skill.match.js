@@ -18,13 +18,40 @@ function extractIP(text) {
   return match ? match[0] : null;
 }
 
-function fallbackToSkill() {
-  return {
-    action: "skill",
-    skill_name: "check-system-health",
-    input: {},
-    summary: "Fallback skill-first — intent tidak jelas atau tool langsung dilarang",
-  };
+/**
+ * @param {string} text
+ * @returns {boolean}
+ */
+function isCommand(text) {
+  const t = String(text || "").toLowerCase();
+  return (
+    t.includes("cek") ||
+    t.includes("crk") ||
+    t.includes("ping") ||
+    t.includes("jalankan") ||
+    t.includes("ambil") ||
+    t.includes("monitor")
+  );
+}
+
+/**
+ * @param {string} userInput
+ * @returns {{ type: "skill"|"chat", skill?: string, input?: object, message?: string }}
+ */
+function planUserIntent(userInput) {
+  const msg = typeof userInput === "string" ? userInput : "";
+  if (!isCommand(msg)) {
+    return { type: "chat", message: msg };
+  }
+  const intent = detectSkill(msg);
+  if (intent) {
+    return {
+      type: "skill",
+      skill: intent.skill,
+      input: intent.input,
+    };
+  }
+  return { type: "chat", message: msg };
 }
 
 /** Tool yang tidak boleh dipilih langsung oleh planner (hanya lewat skill). */
@@ -67,14 +94,16 @@ function coerceForbiddenToolsToSkill(rawPlan, userMessage, skillRegistry) {
           : "Memeriksa kesehatan sistem (skill-first)",
     };
   }
-  if (skillRegistry.has("check-system-health")) {
-    return fallbackToSkill();
-  }
-  return rawPlan;
+  return {
+    action: "respond",
+    message: userMessage,
+    summary: "Tidak dapat memetakan ke skill; jawab sebagai percakapan",
+  };
 }
 
 /**
  * Deteksi skill dari teks (normalisasi + toleransi typo ringan).
+ * Hanya dipanggil dari jalur command (isCommand).
  * @returns {{ skill: string, input: object } | null}
  */
 function detectSkill(text) {
@@ -111,6 +140,16 @@ function detectSkill(text) {
   }
 
   if (
+    t.includes("monitor") ||
+    (t.includes("jalankan") && (t.includes("cek") || t.includes("crk") || t.includes("periksa")))
+  ) {
+    return {
+      skill: "check-system-health",
+      input: {},
+    };
+  }
+
+  if (
     t.includes("cek") ||
     t.includes("status") ||
     t.includes("kondisi") ||
@@ -137,6 +176,8 @@ function matchIntentToSkill(message, skillRegistry) {
   const m = message.trim();
   if (!m) return null;
 
+  if (!isCommand(m)) return null;
+
   const intent = detectSkill(m);
   if (!intent || !skillRegistry.has(intent.skill)) {
     return null;
@@ -162,8 +203,9 @@ function matchIntentToSkill(message, skillRegistry) {
 module.exports = {
   normalize,
   extractIP,
+  isCommand,
+  planUserIntent,
   detectSkill,
-  fallbackToSkill,
   matchIntentToSkill,
   FORBIDDEN_DIRECT_TOOLS,
   coerceForbiddenToolsToSkill,

@@ -2,7 +2,7 @@
 
 const { normalizePlannerDecision } = require("../utils/validator");
 const { modelManager } = require("./modelManager");
-const { callModelJson, ROUTING } = require("./modelRouter");
+const { callModelJson, callChatText, ROUTING } = require("./modelRouter");
 
 // ===================================================
 // CIRCUIT BREAKER — mencegah spam ke OpenAI saat down
@@ -170,6 +170,37 @@ function createOpenAIProvider() {
           response: `LLM tidak dapat diakses saat ini: ${err.message}`,
           summary: "LLM error fallback",
         });
+      }
+    },
+
+    /**
+     * chat(): Respons teks bebas (jalur chat planner, bukan JSON plan).
+     */
+    async chat(userMessage) {
+      const msg = typeof userMessage === "string" ? userMessage : "";
+      if (!msg.trim()) {
+        return "Silakan kirim pesan.";
+      }
+      if (!circuit.isAllowed()) {
+        return "Sistem AI sementara tidak tersedia (circuit breaker aktif). Silakan coba lagi sebentar lagi.";
+      }
+      try {
+        const text = await withRetry(
+          () =>
+            callChatText({
+              systemPrompt:
+                "Kamu adalah asisten AI yang membantu pengguna. Jawab singkat, sopan, dan jelas. " +
+                "Pertanyaan umum, percakapan, atau permintaan daftar kemampuan dijawab sebagai obrolan — jangan menyuruh menjalankan health check kecuali pengguna meminta pemeriksaan sistem secara eksplisit.",
+              userPrompt: msg,
+            }),
+          { maxRetries: 2, baseDelayMs: 1000 },
+        );
+        circuit.recordSuccess();
+        const out = String(text || "").trim();
+        return out || "Maaf, tidak ada jawaban.";
+      } catch (err) {
+        circuit.recordFailure();
+        return `Tidak dapat menghasilkan jawaban saat ini: ${err.message}`;
       }
     },
 
