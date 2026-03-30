@@ -8,6 +8,7 @@ function createExecutionState(overrides = {}) {
     stepCount: 0,
     maxSteps: typeof overrides.maxSteps === "number" && overrides.maxSteps > 0 ? overrides.maxSteps : 5,
     lastResult: null,
+    lastToolName: undefined,
     history: [],
     isCompleted: false,
   };

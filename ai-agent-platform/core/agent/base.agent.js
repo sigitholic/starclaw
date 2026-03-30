@@ -184,7 +184,12 @@ class BaseAgent {
       if (plan.plannerDecision === "respond") {
         execState.isCompleted = true;
         const rawMsg = plan.finalResponse != null ? String(plan.finalResponse) : "";
-        const userMessage = formatResponse(rawMsg || execState.lastResult);
+        const lastTool =
+          execState.lastToolName ||
+          (execState.history && execState.history.length
+            ? execState.history[execState.history.length - 1].tool
+            : undefined);
+        const userMessage = formatResponse(rawMsg || execState.lastResult, lastTool);
         lastPlan = plan;
         lastExecution = {
           score: typeof plan.baseScore === "number" ? plan.baseScore : 0,
@@ -274,6 +279,7 @@ class BaseAgent {
 
       if (toolResult) {
         execState.lastResult = toolResult;
+        execState.lastToolName = lastOk.tool;
         appendTrace(execState, {
           tool: lastOk.tool,
           input: (plan.steps && plan.steps[0] && plan.steps[0].input) || {},
@@ -292,7 +298,7 @@ class BaseAgent {
 
       if (toolResult && toolResult.success === true) {
         execState.isCompleted = true;
-        const userMessage = formatResponse(toolResult);
+        const userMessage = formatResponse(toolResult, lastOk.tool);
         lastExecution = {
           ...execution,
           finalResponse: userMessage,
@@ -307,7 +313,7 @@ class BaseAgent {
         execState.isCompleted = true;
         const err = failedOutputs[failedOutputs.length - 1];
         const errPayload = err.output || { success: false, message: err.reason || "Tool error" };
-        const userMessage = formatResponse(errPayload);
+        const userMessage = formatResponse(errPayload, err.tool);
         lastExecution = {
           ...execution,
           finalResponse: userMessage,
@@ -371,7 +377,11 @@ class BaseAgent {
     const userFacingMessage = formatResponse(
       execution.finalResponse != null && String(execution.finalResponse).trim() !== ""
         ? execution.finalResponse
-        : execState.lastResult
+        : execState.lastResult,
+      execState.lastToolName ||
+        (execState.history && execState.history.length
+          ? execState.history[execState.history.length - 1].tool
+          : undefined)
     );
 
     const goalReached =
@@ -453,22 +463,25 @@ class BaseAgent {
       execution: errResult,
     });
     modelManager.restoreModel(routing.previousModel);
+    const userMsg = formatResponse(msg);
     if (eventBus) {
       await eventBus.emit(EVENT_TYPES.AGENT_FINISHED, {
         timestamp: new Date().toISOString(),
         agent: this.name,
-        payload: { summary: msg, finalResponse: msg, score: 0, action: "respond", runId },
+        payload: { summary: userMsg, finalResponse: userMsg, score: 0, action: "respond", runId },
       });
     }
     return {
       agent: this.name,
-      plan: { plannerDecision: "respond", steps: [], summary: msg },
+      plan: { plannerDecision: "respond", steps: [], summary: userMsg },
       action: "respond",
-      message: msg,
+      message: userMsg,
       __runId: runId,
       __modelId: routing.modelId,
       __routingMode: routing.routingMode,
       ...errResult,
+      finalResponse: userMsg,
+      summary: userMsg,
     };
   }
 }
