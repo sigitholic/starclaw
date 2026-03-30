@@ -3,6 +3,7 @@
 const { normalizePlannerDecision } = require("../utils/validator");
 const { EVENT_TYPES } = require("../events/event.types");
 const { selectRelevantTools, extractPreviousTools, mergePlannerSchemas } = require("./tool.selector");
+const { matchIntentToSkill } = require("./intent.skill.match");
 const { modelManager } = require("../llm/modelManager");
 
 class Planner {
@@ -48,6 +49,31 @@ class Planner {
     const prompt = this.promptBuilder.buildPlanningPrompt(input, selectedSchemas);
 
     this.logger.debug("Planner model", { model: modelManager.getModel() });
+
+    const canShortCircuitIntent =
+      !input.__isRegenerate && (!input.observations || input.observations.length === 0);
+    const intentSkill = canShortCircuitIntent ? matchIntentToSkill(message, this.skillRegistry) : null;
+    if (intentSkill) {
+      const normalizedPlan = normalizePlannerDecision(intentSkill);
+      this.logger.info("Planner decision (intent→skill)", {
+        decision: normalizedPlan.plannerDecision,
+        skill: normalizedPlan.steps[0]?.tool,
+      });
+      if (eventBus) {
+        await eventBus.emit(EVENT_TYPES.PLANNER_DECISION, {
+          timestamp: new Date().toISOString(),
+          agent: agentName,
+          payload: {
+            decision: normalizedPlan.plannerDecision,
+            stepCount: normalizedPlan.steps.length,
+            summary: normalizedPlan.summary,
+            toolsInPrompt: selectedSchemas.length,
+            source: "intent-skill-match",
+          },
+        });
+      }
+      return normalizedPlan;
+    }
 
     const rawDecision = await this.llmProvider.plan(prompt, input);
     const normalizedPlan = normalizePlannerDecision(rawDecision);

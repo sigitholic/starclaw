@@ -19,8 +19,11 @@
 const { agentConfig } = require("../../config/agent.config");
 
 const SKILL_KEYWORDS = [
-  { skills: ["check-system-health"], pattern: /health|cek sistem|status platform|diagnosis|doctor/i },
-  { skills: ["run-system-command"], pattern: /shell|bash|command|terminal|exec|perintah|jalankan/i },
+  {
+    skills: ["check-system-health"],
+    pattern: /health|cek\s+status|cek\s+sistem|status\s+(?:sistem|platform|kesehatan|server)|status platform|diagnosis|doctor/i,
+  },
+  { skills: ["run-system-command"], pattern: /shell|bash|command|terminal|exec|perintah|jalankan|ping\b/i },
   { skills: ["manage-files"], pattern: /file|folder|direktori|baca|tulis|hapus|buat file/i },
   { skills: ["fetch-api-data"], pattern: /http|api call|fetch|curl|request|endpoint|rest api/i },
   {
@@ -139,12 +142,18 @@ function selectRelevantTools(allTools, message = "", options = {}) {
         }
       }
     }
+
+    // Skill mengalahkan tool rendah: jangan tawarkan shell-tool jika run-system-command dipilih
+    if (selected.has("run-system-command") && selected.has("shell-tool")) {
+      selected.delete("shell-tool");
+    }
   }
 
   // Layer 5: Jika masih kurang dari minimum (4), tambah tool populer
   const fallbacks = ["shell-tool", "fs-tool", "http-tool", "web-search-tool", "browser-tool"];
   for (const name of fallbacks) {
     if (selected.size >= Math.min(4, max)) break;
+    if (name === "shell-tool" && selected.has("run-system-command")) continue;
     if (toolMap.has(name)) selected.add(name);
   }
 
