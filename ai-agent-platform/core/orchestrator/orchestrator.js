@@ -7,6 +7,9 @@ const { createEventStore } = require("../events/event.store");
 const { EVENT_TYPES } = require("../events/event.types");
 const { createLogger } = require("../utils/logger");
 const { runNocMultiAgentWorkflow } = require("../../modules/noc/workflows/noc.multi-agent.workflow");
+const { createStructuredWorkflow } = require("./structured.workflow");
+const { createDefaultLlmProvider } = require("../llm/llm.provider");
+const { createToolRegistry } = require("../tools");
 
 /**
  * Fix BUG-09: Workflow Registry yang dinamis.
@@ -21,6 +24,13 @@ function buildDefaultOrchestrator(customRoutes = {}) {
   const taskRouter = createTaskRouter(customRoutes);
   const workflowEngine = createWorkflowEngine();
 
+  // Structured Workflow — mode deterministik untuk instruksi kompleks
+  const sharedToolsRegistry = createToolRegistry();
+  const structuredWorkflow = createStructuredWorkflow({
+    toolsRegistry: sharedToolsRegistry,
+    llmProvider: createDefaultLlmProvider(),
+  });
+
   // Registry untuk custom workflow handlers (non-agent workflows)
   const workflowRegistry = new Map();
 
@@ -28,6 +38,21 @@ function buildDefaultOrchestrator(customRoutes = {}) {
   workflowRegistry.set("noc-incident-workflow", async ({ payload, eventBus: bus }) =>
     runNocMultiAgentWorkflow({ payload: payload || {}, eventBus: bus })
   );
+
+  // Daftarkan Structured Workflow untuk instruksi kompleks deterministik
+  // Trigger via task name "structured" atau ketika payload.__structured=true
+  workflowRegistry.set("structured", async ({ payload }) => {
+    const command = payload.message || payload.command || "";
+    return structuredWorkflow.run(command, {
+      eventBus,
+      onStepStart: (i, step, state) => {
+        logger.info(`Structured step ${i + 1}/${state.totalSteps}: ${step.task}`);
+      },
+      onStepComplete: (i, step, result, validation) => {
+        logger.info(`Structured step ${i + 1} selesai`, { valid: validation.valid, tool: step.tool });
+      },
+    });
+  });
 
   // Helper: persist event ke store
   const persistEvent = (type) => (payload) => eventStore.add({ type, payload });
@@ -62,8 +87,15 @@ function buildDefaultOrchestrator(customRoutes = {}) {
         let result;
         const customWorkflowHandler = workflowRegistry.get(taskName);
 
-        if (customWorkflowHandler) {
-          // Gunakan custom workflow handler dari registry
+        // Auto-route ke structured workflow jika diminta eksplisit
+        const forceStructured = payload && payload.__structured === true;
+
+        if (forceStructured) {
+          result = await structuredWorkflow.run(
+            payload.message || payload.command || taskName,
+            { eventBus }
+          );
+        } else if (customWorkflowHandler) {
           result = await customWorkflowHandler({
             payload: payload || {},
             eventBus: (payload && payload.__eventBus) ? payload.__eventBus : eventBus,
