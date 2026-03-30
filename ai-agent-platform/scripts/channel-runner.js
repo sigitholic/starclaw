@@ -6,12 +6,20 @@ const { createLogger } = require("../core/utils/logger");
 const { createTelegramChannel } = require("../core/channels/telegram.channel");
 
 async function runLocalChannel(orchestrator) {
+  // Jalankan health-check awal saat startup
   const result = await orchestrator.run("platform-assistant", {
     message: "status platform starclaw",
   });
   console.log("[channel:local] assistant result:", {
     summary: result.summary,
     response: result.finalResponse,
+  });
+
+  // Tetap aktif — tunggu sinyal shutdown alih-alih langsung exit
+  console.log("[channel:local] Channel siaga. Tekan Ctrl+C untuk berhenti.");
+  await new Promise((resolve) => {
+    process.once("SIGINT", resolve);
+    process.once("SIGTERM", resolve);
   });
 }
 

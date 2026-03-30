@@ -17,9 +17,12 @@ if (major < 18) {
   process.exit(1);
 }
 
-function run(command, args, cwd, label) {
+const root = process.cwd();
+let shuttingDown = false;
+
+function run(command, args, label) {
   const child = spawn(command, args, {
-    cwd,
+    cwd: root,
     stdio: ["ignore", "pipe", "pipe"],
     shell: false,
   });
@@ -35,44 +38,58 @@ function run(command, args, cwd, label) {
   return child;
 }
 
+function spawnChannel() {
+  const channel = run("node", ["scripts/channel-runner.js"], "channel");
+
+  channel.on("exit", (code, signal) => {
+    // Jika sedang shutdown atau dihentikan oleh signal — tidak perlu restart
+    if (shuttingDown || signal) return;
+
+    if (code !== 0) {
+      console.error(`[start-all] channel crash (kode ${code}), restart dalam 3 detik...`);
+    } else {
+      // Exit normal (mode local/cli selesai task): restart supaya tetap siaga
+      console.log("[start-all] channel selesai, restart dalam 3 detik...");
+    }
+    setTimeout(spawnChannel, 3000);
+  });
+
+  return channel;
+}
+
 function main() {
-  const root = process.cwd();
-  const api = run("node", ["scripts/dev.js"], root, "api");
+  const api = run("node", ["scripts/dev.js"], "api");
   const dashboard = run(
     "node",
     ["node_modules/next/dist/bin/next", "dev", "apps/dashboard", "-p", process.env.DASHBOARD_PORT || "3001"],
-    root,
     "dashboard",
   );
-  const channel = run("node", ["scripts/channel-runner.js"], root, "channel");
+  let channel = spawnChannel();
 
   const shutdown = () => {
-    if (!api.killed) {
-      api.kill("SIGTERM");
-    }
-    if (!dashboard.killed) {
-      dashboard.kill("SIGTERM");
-    }
-    if (!channel.killed) {
-      channel.kill("SIGTERM");
-    }
+    if (shuttingDown) return;
+    shuttingDown = true;
+    if (!api.killed) api.kill("SIGTERM");
+    if (!dashboard.killed) dashboard.kill("SIGTERM");
+    if (!channel.killed) channel.kill("SIGTERM");
     process.exit(0);
   };
 
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
 
-  api.on("exit", () => {
-    if (!dashboard.killed) dashboard.kill("SIGTERM");
-    if (!channel.killed) channel.kill("SIGTERM");
+  // API dan dashboard saling menjaga — jika salah satu crash, semua dihentikan.
+  // Channel tidak termasuk karena merupakan proses opsional yang di-restart otomatis.
+  api.on("exit", (code) => {
+    if (shuttingDown) return;
+    console.error(`[start-all] api keluar (kode ${code}), menghentikan semua proses...`);
+    shutdown();
   });
-  dashboard.on("exit", () => {
-    if (!api.killed) api.kill("SIGTERM");
-    if (!channel.killed) channel.kill("SIGTERM");
-  });
-  channel.on("exit", () => {
-    if (!api.killed) api.kill("SIGTERM");
-    if (!dashboard.killed) dashboard.kill("SIGTERM");
+
+  dashboard.on("exit", (code) => {
+    if (shuttingDown) return;
+    console.error(`[start-all] dashboard keluar (kode ${code}), menghentikan semua proses...`);
+    shutdown();
   });
 }
 
