@@ -51,6 +51,30 @@ function getSessionSnapshot(sessionId) {
   return { ...getSession(sessionId) };
 }
 
+/**
+ * Baca satu key atau seluruh snapshot sesi (untuk planner rule-based).
+ * @param {string} sessionId
+ * @param {string} [key] - jika diisi, kembalikan nilai key tersebut
+ */
+function get(sessionId, key) {
+  const snap = getSessionSnapshot(sessionId);
+  if (key != null && String(key).trim() !== "") {
+    return snap[String(key)];
+  }
+  return snap;
+}
+
+/**
+ * Salinan semua sesi untuk debug (jangan mutasi langsung).
+ */
+function getStoreSnapshot() {
+  const out = {};
+  for (const [sid, data] of sessions.entries()) {
+    out[sid] = { ...data };
+  }
+  return out;
+}
+
 function clearSession(sessionId) {
   sessions.delete(safeSessionId(sessionId));
 }
@@ -60,10 +84,21 @@ function _sessionCount() {
   return sessions.size;
 }
 
+/** API ringkas untuk planner/debug: memory.get(sessionId, key?), memory.store */
+const memory = {
+  get,
+  get store() {
+    return getStoreSnapshot();
+  },
+};
+
 module.exports = {
   getSession,
   patchSession,
   getSessionSnapshot,
+  get,
+  getStoreSnapshot,
+  memory,
   clearSession,
   _sessionCount,
 };

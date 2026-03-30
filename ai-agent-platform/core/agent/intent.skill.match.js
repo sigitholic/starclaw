@@ -123,6 +123,79 @@ function plan(userInput, shortMemory = null) {
 /** Alias kecil untuk kode yang sudah memakai nama lama. */
 const planUserIntent = plan;
 
+/**
+ * Satu titik masuk planner rule-based: input → skill atau respons teks (tanpa LLM).
+ * @param {string} userInput
+ * @param {Record<string, unknown> | { get?: (sid: string, key?: string) => unknown }} sessionMemory
+ *   snapshot sesi atau API memori dengan `get(sessionId, key?)`
+ * @param {string} [sessionId]
+ * @returns {{ plannerDecision: "skill"|"tool"|"respond", raw: object, intent: object }}
+ */
+function newPlanner(userInput, sessionMemory, sessionId, extra = {}) {
+  const sid =
+    sessionId != null && String(sessionId).trim() !== ""
+      ? String(sessionId).trim()
+      : "default";
+  let mem = {};
+  if (sessionMemory && typeof sessionMemory.get === "function") {
+    const got = sessionMemory.get(sid);
+    mem = got && typeof got === "object" ? got : {};
+  } else if (sessionMemory && typeof sessionMemory === "object") {
+    mem = sessionMemory;
+  }
+
+  const msg = typeof userInput === "string" ? userInput : "";
+  const snap =
+    extra && extra.openclawSnapshot && typeof extra.openclawSnapshot === "object"
+      ? extra.openclawSnapshot
+      : null;
+  const wantsOpenClawAudit =
+    (snap && Object.keys(snap).length > 0) ||
+    /audit|openclaw|architecture|arsitektur|gap|map\s/i.test(msg);
+  if (wantsOpenClawAudit) {
+    return {
+      plannerDecision: "tool",
+      intent: { type: "tool", tool: "openclaw-gap-analyzer-tool" },
+      raw: {
+        action: "tool",
+        tool_name: "openclaw-gap-analyzer-tool",
+        input: { openclawSnapshot: snap || {} },
+        summary: "Analisis gap OpenClaw / arsitektur (rule-based)",
+      },
+    };
+  }
+
+  const intent = plan(userInput, mem);
+  if (intent.type === "skill" && intent.skill) {
+    return {
+      plannerDecision: "skill",
+      intent,
+      raw: {
+        action: "skill",
+        skill_name: intent.skill,
+        input: intent.input || {},
+        summary:
+          intent.skill === "run-system-command"
+            ? `Ping ${(intent.input && intent.input.target) || "host"} melalui skill run-system-command`
+            : intent.skill === "check-server-resource"
+              ? "Memeriksa resource server melalui skill check-server-resource"
+              : "Memeriksa kesehatan sistem melalui skill check-system-health",
+      },
+    };
+  }
+  const chatText = typeof intent.message === "string" ? intent.message : String(userInput || "");
+  return {
+    plannerDecision: "respond",
+    intent,
+    raw: {
+      action: "respond",
+      message: chatText,
+      response: chatText,
+      summary: "Percakapan (rule-based, bukan skill)",
+    },
+  };
+}
+
 /** Tool yang tidak boleh dipilih langsung oleh planner (hanya lewat skill). */
 const FORBIDDEN_DIRECT_TOOLS = ["shell-tool"];
 
@@ -217,6 +290,7 @@ module.exports = {
   isFollowUpIntent,
   plan,
   planUserIntent,
+  newPlanner,
   matchIntentToSkill,
   FORBIDDEN_DIRECT_TOOLS,
   coerceForbiddenToolsToSkill,
