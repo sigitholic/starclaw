@@ -2,6 +2,7 @@
 
 const { agentConfig } = require("../../config/agent.config");
 const { EVENT_TYPES } = require("../events/event.types");
+const { modelManager } = require("../llm/modelManager");
 
 class BaseAgent {
   constructor({ name, planner, reviewer, executor, memory, logger }) {
@@ -30,6 +31,45 @@ class BaseAgent {
 
     this.logger.info("Agent menerima input", { agent: this.name });
 
+    const maxSteps = agentConfig.maxExecutionSteps || 5;
+    const stepCount = typeof cleanInput.__stepCount === "number" ? cleanInput.__stepCount : 1;
+    if (stepCount > maxSteps) {
+      const msg = "Execution stopped: too many steps (possible loop)";
+      this.logger.warn(msg, { stepCount, maxSteps });
+      const errResult = {
+        score: 0,
+        outputs: [],
+        summary: msg,
+        gaps: [],
+        recommendations: [],
+        finalResponse: msg,
+        tokenUsage: { used: 0, budget: agentConfig.defaultTokenBudget || 4000, withinBudget: true },
+        executionTimeMs: 0,
+        trace: Array.isArray(cleanInput.__executionTrace) ? cleanInput.__executionTrace : [],
+      };
+      this.memory.short.remember({
+        agent: this.name,
+        userMessage: typeof cleanInput.message === "string" ? cleanInput.message : JSON.stringify(cleanInput),
+        agentMessage: msg,
+        input: cleanInput,
+        execution: errResult,
+      });
+      if (eventBus) {
+        await eventBus.emit(EVENT_TYPES.AGENT_FINISHED, {
+          timestamp: new Date().toISOString(),
+          agent: this.name,
+          payload: { summary: msg, finalResponse: msg, score: 0 },
+        });
+      }
+      return {
+        agent: this.name,
+        plan: { plannerDecision: "respond", steps: [], summary: msg },
+        ...errResult,
+      };
+    }
+
+    console.log("MODEL:", modelManager.getModel());
+
     // Gunakan async context builder jika tersedia (mendukung LLM summarizer)
     const plannerContext = typeof this.memory.short.buildPlannerContextAsync === "function"
       ? await this.memory.short.buildPlannerContextAsync({
@@ -52,6 +92,7 @@ class BaseAgent {
 
     const plan = await this.planner.createPlan({
       ...cleanInput,
+      __stepCount: stepCount,
       context: plannerContext,
       __agentName: this.name,
       __eventBus: eventBus,
@@ -76,7 +117,9 @@ class BaseAgent {
           success: false,
           summary: "Instruksi diveto oleh Reviewer Agent: " + review.reason,
           finalResponse: "Sistem Keamanan Starclaw (Reviewer) mencegah saya melakukan tindakan ini. Alasan: " + review.reason,
-          score: 0
+          score: 0,
+          gaps: Array.isArray(plan.gaps) ? plan.gaps : [],
+          recommendations: Array.isArray(plan.recommendations) ? plan.recommendations : [],
         };
 
         this.memory.short.remember({
@@ -104,7 +147,20 @@ class BaseAgent {
       ...cleanInput,
       __agentName: this.name,
       __eventBus: eventBus,
+      __executionTrace: cleanInput.__executionTrace,
+      __completedToolKeys: cleanInput.__completedToolKeys,
     });
+
+    if (typeof this.memory.short.addToolResult === "function" && Array.isArray(execution.outputs)) {
+      for (const out of execution.outputs) {
+        if (out.status === "ok" && out.output !== undefined) {
+          this.memory.short.addToolResult({
+            name: out.tool || "tool",
+            content: JSON.stringify(out.output),
+          });
+        }
+      }
+    }
 
     this.memory.short.remember({
       agent: this.name,
@@ -130,6 +186,8 @@ class BaseAgent {
       agent: this.name,
       plan,
       ...execution,
+      __executionTrace: execution.trace || [],
+      __completedToolKeys: execution.completedToolKeys || [],
     };
   }
 }

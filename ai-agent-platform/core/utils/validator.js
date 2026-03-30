@@ -106,7 +106,7 @@ function normalizeStep(step, index) {
 
 function normalizePlannerDecision(rawDecision) {
   if (!isPlainObject(rawDecision)) {
-    throw new Error("Planner output harus berupa JSON object, bukan " + typeof rawDecision);
+    throw new Error("Planner output harus object JSON, bukan " + typeof rawDecision);
   }
 
   // ----------------------------------------------------------------
@@ -131,7 +131,7 @@ function normalizePlannerDecision(rawDecision) {
     const toolName = rawDecision.tool_name || rawDecision.tool;
     if (!toolName || typeof toolName !== "string" || toolName.trim() === "") {
       throw new Error(
-        'Planner action="tool" wajib punya field "tool_name" atau "tool" berisi nama tool yang valid. ' +
+        'Planner action=tool wajib punya tool_name: field "tool_name" atau "tool" berisi nama tool yang valid. ' +
         `Diterima: tool_name=${JSON.stringify(rawDecision.tool_name)}, tool=${JSON.stringify(rawDecision.tool)}`
       );
     }

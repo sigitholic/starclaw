@@ -34,6 +34,9 @@ const agentConfig = {
   // Maksimal iterasi Re-Act loop per task
   maxIterations: 12,
 
+  // Guard batas atas langkah eksekusi (plan → tool → observe) — cegah loop tak terbatas
+  maxExecutionSteps: 5,
+
   // Sliding window untuk observation buffer (cegah context explosion)
   maxObservations: 6,
 

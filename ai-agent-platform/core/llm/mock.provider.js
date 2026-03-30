@@ -78,8 +78,11 @@ function createMockProvider() {
      * Mock selalu approve kecuali ada kata kunci berbahaya.
      */
     async review(prompt) {
-      const dangerousPatterns = /rm -rf|format|mkfs|credentials|id_rsa|\.env/i;
-      const isDangerous = dangerousPatterns.test(prompt);
+      // Hanya evaluasi isi plan (bukan teks instruksi reviewer) — cegah false positive
+      const planSection =
+        (prompt.match(/\[PLAN YANG DIAJUKAN PLANNER\]\s*([\s\S]*?)(?:\[AKSI PLANNER|$)/i) || [])[1] || prompt;
+      const dangerousPatterns = /rm\s+-rf\s*\/|mkfs|curl\s+.*\|\s*bash|wget\s+.*\|\s*sh/i;
+      const isDangerous = dangerousPatterns.test(planSection);
 
       return {
         approved: !isDangerous,

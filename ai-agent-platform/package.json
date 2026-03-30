@@ -13,6 +13,7 @@
     "build:dashboard": "next build apps/dashboard",
     "start:dashboard": "next start apps/dashboard -p 3001",
     "seed": "node scripts/seed.js",
+    "agent": "node scripts/agent-cli.js",
     "test": "node --test tests/unit/*.test.js"
   },
   "engines": {
@@ -20,6 +21,7 @@
   },
   "license": "MIT",
   "dependencies": {
+    "@google/generative-ai": "^0.21.0",
     "@xyflow/react": "^12.10.2",
     "acorn": "^8.16.0",
     "acorn-walk": "^8.3.5",

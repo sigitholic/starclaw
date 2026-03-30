@@ -36,6 +36,24 @@ function createShortMemory(agentName = null) {
       persistIfNeeded();
     },
 
+    /**
+     * Simpan hasil tool ke memori agar planner/LLM dapat melihat output terstruktur.
+     */
+    addToolResult({ name, content }) {
+      const text = typeof content === "string" ? content : JSON.stringify(content);
+      state.push({
+        role: "tool",
+        name,
+        content: text,
+        at: new Date().toISOString(),
+      });
+      const maxItems = agentConfig.maxShortMemoryItems || 30;
+      if (state.length > maxItems) {
+        state.shift();
+      }
+      persistIfNeeded();
+    },
+
     recall(limit = 10) {
       return state.slice(-limit);
     },

@@ -34,6 +34,8 @@ function loadEnvConfig() {
     llmProvider: process.env.LLM_PROVIDER || "mock",
     llmModel: process.env.LLM_MODEL || "gpt-4o-mini",
     openAiApiKey: process.env.OPENAI_API_KEY || "",
+    anthropicApiKey: process.env.ANTHROPIC_API_KEY || "",
+    geminiApiKey: process.env.GEMINI_API_KEY || "",
     agentChannel: process.env.AGENT_CHANNEL || "local",
     telegramBotToken: process.env.TELEGRAM_BOT_TOKEN || "",
     telegramPairingEnabled: (process.env.TELEGRAM_PAIRING_ENABLED || "true").toLowerCase() === "true",

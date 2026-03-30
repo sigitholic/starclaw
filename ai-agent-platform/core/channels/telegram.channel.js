@@ -12,6 +12,7 @@ const { cronManager } = require("../scheduler/cron.manager");
 const { parseTimeFromMessage, isReminderRequest } = require("../scheduler/time-parser");
 const { EVENT_TYPES } = require("../events/event.types");
 const { autoFormat, isAlreadyFormatted } = require("../utils/response.formatter");
+const { modelManager } = require("../llm/modelManager");
 
 function createTelegramChannel({
   botToken,
@@ -394,6 +395,38 @@ function createTelegramChannel({
           `/help — Tampilkan bantuan ini\n\n` +
           `Atau kirim pesan biasa dan aku akan merespons, ${persona.ownerCallSign}!`,
         parse_mode: "Markdown",
+      });
+      return;
+    }
+
+    // /model — set atau lihat model LLM aktif
+    if (text.startsWith("/model")) {
+      const sub = text.replace(/^\/model\s*/i, "").trim();
+      if (!sub || sub === "get") {
+        await tgCall("sendMessage", {
+          chat_id: chatId,
+          text: `🧠 Model aktif: \`${modelManager.getModel()}\`\n\nDidukung:\n${modelManager.listSupported().map(m => `• \`${m}\``).join("\n")}\n\nContoh: /model set gemini-1.5-pro`,
+          parse_mode: "Markdown",
+        });
+        return;
+      }
+      if (sub.startsWith("set ")) {
+        const id = sub.replace(/^set\s+/i, "").trim();
+        try {
+          const set = modelManager.setModel(id);
+          await tgCall("sendMessage", {
+            chat_id: chatId,
+            text: `✅ Model diset ke: \`${set}\``,
+            parse_mode: "Markdown",
+          });
+        } catch (e) {
+          await tgCall("sendMessage", { chat_id: chatId, text: `❌ ${e.message}` });
+        }
+        return;
+      }
+      await tgCall("sendMessage", {
+        chat_id: chatId,
+        text: "⚠️ Gunakan: /model get  atau  /model set <model-id>",
       });
       return;
     }
@@ -929,6 +962,7 @@ function createTelegramChannel({
             { command: "noc", description: "🌐 Trigger workflow NOC incident" },
             { command: "reset_persona", description: "🔄 Reset identitas persona agent" },
             { command: "status", description: "📊 Status agent & info persona" },
+            { command: "model", description: "🧠 Lihat / ubah model LLM (GPT, Claude, Gemini)" },
             { command: "plugin", description: "🔌 Kelola plugin & install dari ClawHub" },
             { command: "cron", description: "⏰ Jadwalkan task otomatis (cron jobs)" },
             { command: "pair", description: "🔗 Pairing chat dengan kode akses" },

@@ -19,13 +19,15 @@ function createWorkflowEngine() {
         throw new Error("Agent tidak valid untuk workflow engine");
       }
 
-      const maxIterations = maxIterationsOverride || agentConfig.maxIterations || 12;
+      const maxIterations = maxIterationsOverride || agentConfig.maxExecutionSteps || agentConfig.maxIterations || 5;
       const maxObservations = agentConfig.maxObservations || 6;
       const iterationDelay = agentConfig.iterationDelayMs || 300;
 
       let iteration = 0;
       let lastResult = null;
       let currentPayload = { ...payload };
+      let executionTrace = Array.isArray(payload.__executionTrace) ? [...payload.__executionTrace] : [];
+      let completedToolKeys = Array.isArray(payload.__completedToolKeys) ? [...payload.__completedToolKeys] : [];
 
       // Sliding window observation buffer — cegah context explosion di task panjang
       const observationBuffer = [];
@@ -33,6 +35,10 @@ function createWorkflowEngine() {
 
       while (iteration < maxIterations) {
         iteration++;
+
+        currentPayload.__stepCount = iteration;
+        currentPayload.__executionTrace = executionTrace;
+        currentPayload.__completedToolKeys = completedToolKeys;
 
         // Inject observasi sebagai sliding window (hanya N terakhir)
         if (observationBuffer.length > 0) {
@@ -50,6 +56,13 @@ function createWorkflowEngine() {
         }
 
         // === OBSERVE ===
+        if (lastResult && Array.isArray(lastResult.__executionTrace)) {
+          executionTrace = lastResult.__executionTrace;
+        }
+        if (lastResult && Array.isArray(lastResult.__completedToolKeys)) {
+          completedToolKeys = lastResult.__completedToolKeys;
+        }
+
         if (lastResult && Array.isArray(lastResult.outputs) && lastResult.outputs.length > 0) {
           for (const out of lastResult.outputs) {
             // Batasi output per observation ke 1500 karakter (lebih hemat dari 2000)
@@ -79,6 +92,11 @@ function createWorkflowEngine() {
           break;
         }
 
+        // 1b. Sudah ada jawaban final dari eksekutor (hasil tool cukup)
+        if (lastResult.finalResponse && String(lastResult.finalResponse).trim() !== "") {
+          break;
+        }
+
         // 2. Semua tool gagal — tidak ada progress
         const allOutputsFailed = Array.isArray(lastResult.outputs) &&
           lastResult.outputs.length > 0 &&
@@ -89,6 +107,14 @@ function createWorkflowEngine() {
 
         // 3. Tidak ada output sama sekali
         if (!lastResult.outputs || lastResult.outputs.length === 0) {
+          break;
+        }
+
+        // 3b. Semua output sukses dengan success:true — hentikan loop (satu putaran tool cukup)
+        const allOkStructured = lastResult.outputs.every(
+          o => o.status === "ok" && o.output && o.output.success === true
+        );
+        if (allOkStructured && lastResult.outputs.length > 0) {
           break;
         }
 
@@ -115,6 +141,7 @@ function createWorkflowEngine() {
       if (lastResult) {
         lastResult.__iterations = iteration;
         lastResult.__totalTokensEst = totalTokensEstimated;
+        lastResult.__executionTrace = executionTrace;
       }
 
       return lastResult;
