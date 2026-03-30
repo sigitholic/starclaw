@@ -368,6 +368,97 @@ async function callModelJson({ systemPrompt, userPrompt }) {
 }
 
 /**
+ * Sama seperti callModelJson tetapi mengembalikan string mentah dari model (tanpa JSON.parse).
+ * Dipakai intent engine untuk validasi ketat (mis. harus diawali "{").
+ * @param {{ systemPrompt: string, userPrompt: string }} opts
+ * @returns {Promise<string>}
+ */
+async function callModelJsonString({ systemPrompt, userPrompt }) {
+  const fullId = modelManager.getModel();
+  const route = ROUTING[fullId];
+  if (!route) {
+    throw new Error(`Model tidak dikenal di router: ${fullId}`);
+  }
+
+  if (route.provider === "openai") {
+    const apiKey = process.env.OPENAI_API_KEY || "";
+    if (!apiKey) throw new Error("OPENAI_API_KEY belum diatur");
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: route.apiModel,
+        temperature: 0.2,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: `${userPrompt}\n\nKembalikan response JSON saja tanpa markdown.` },
+        ],
+      }),
+    });
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`OpenAI API error: ${response.status} ${errText}`);
+    }
+    const resBody = await response.json();
+    return resBody?.choices?.[0]?.message?.content || "";
+  }
+
+  if (route.provider === "anthropic") {
+    const apiKey = process.env.ANTHROPIC_API_KEY || "";
+    if (!apiKey) throw new Error("ANTHROPIC_API_KEY belum diatur");
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: route.apiModel,
+        max_tokens: 4096,
+        system: systemPrompt,
+        messages: [
+          {
+            role: "user",
+            content: `${userPrompt}\n\nKembalikan HANYA JSON valid tanpa markdown atau teks lain.`,
+          },
+        ],
+      }),
+    });
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`Anthropic API error: ${response.status} ${errText}`);
+    }
+    const resBody = await response.json();
+    const textBlock = (resBody.content || []).find((c) => c.type === "text");
+    const content = textBlock?.text || "";
+    return content.replace(/^```json\s*|\s*```$/g, "").trim();
+  }
+
+  if (route.provider === "google") {
+    const apiKey = process.env.GEMINI_API_KEY || "";
+    if (!apiKey) throw new Error("GEMINI_API_KEY belum diatur");
+    let GoogleGenerativeAI;
+    ({ GoogleGenerativeAI } = require("@google/generative-ai"));
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({
+      model: route.apiModel,
+      systemInstruction: systemPrompt,
+    });
+    const result = await model.generateContent(
+      `${userPrompt}\n\nKembalikan HANYA JSON valid tanpa markdown.`
+    );
+    return result.response.text().replace(/^```json\s*|\s*```$/g, "").trim();
+  }
+
+  throw new Error(`Provider tidak diimplementasi: ${route.provider}`);
+}
+
+/**
  * Obrolan teks bebas — sama routing dengan callModelJson, tanpa mode JSON.
  * @param {{ systemPrompt?: string, userPrompt: string }} opts
  * @returns {Promise<string>}
@@ -443,6 +534,7 @@ module.exports = {
   callModel,
   callChatText,
   callModelJson,
+  callModelJsonString,
   /** @deprecated gunakan callModelJson */
   callModelWithJsonPlan: function callModelWithJsonPlan(opts) {
     return callModelJson(opts);
