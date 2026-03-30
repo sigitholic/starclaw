@@ -12,7 +12,30 @@ const { cronManager } = require("../scheduler/cron.manager");
 const { parseTimeFromMessage, isReminderRequest } = require("../scheduler/time-parser");
 const { EVENT_TYPES } = require("../events/event.types");
 const { autoFormat, isAlreadyFormatted } = require("../utils/response.formatter");
+const { formatResponse: formatAgentOutput } = require("../agent/formatter");
 const { modelManager } = require("../llm/modelManager");
+
+/**
+ * Semua teks ke user: jangan kirim objek/JSON mentah — pakai formatter agent.
+ */
+function formatUserChannelMessage(message) {
+  if (message != null && typeof message === "object") {
+    return formatAgentOutput(message);
+  }
+  const s = message == null ? "" : String(message);
+  const t = s.trim();
+  if (t.startsWith("{") && t.endsWith("}")) {
+    try {
+      const parsed = JSON.parse(t);
+      if (parsed && typeof parsed === "object") {
+        return formatAgentOutput(parsed);
+      }
+    } catch (_) {
+      /* teks biasa */
+    }
+  }
+  return s;
+}
 
 function createTelegramChannel({
   botToken,
@@ -36,7 +59,7 @@ function createTelegramChannel({
       if (typeof tgCall === "function") {
         if (job.isReminder) {
           // Pengingat sederhana: langsung kirim!
-          await tgCall("sendMessage", {
+          await sendMessageToUser({
             chat_id: job.chatId,
             text: `🔔 *[PENGINGAT]* Waktunya: *${job.task}*!`,
             parse_mode: "Markdown"
@@ -51,7 +74,7 @@ function createTelegramChannel({
           __chatId: job.chatId,
         });
 
-        await tgCall("sendMessage", {
+        await sendMessageToUser({
           chat_id: job.chatId,
           text: `🤖 *[Laporan Eksekusi Otomatis: ${job.name}]*\n\n${result.finalResponse || result.summary || "Selesai."}`,
           parse_mode: "Markdown"
@@ -59,7 +82,7 @@ function createTelegramChannel({
       }
     } catch (err) {
       if (typeof tgCall === "function") {
-        await tgCall("sendMessage", {
+        await sendMessageToUser({
           chat_id: job.chatId,
           text: `❌ *[Cron Error] ${job.name}*\n\nGagal dieksekusi: ${err.message}`,
           parse_mode: "Markdown"
@@ -118,24 +141,46 @@ function createTelegramChannel({
   }
 
   /**
+   * Kirim pesan teks ke user — objek diformat; log baris final untuk debug.
+   */
+  async function sendMessageToUser(payload) {
+    const p = { ...payload };
+    if (Object.prototype.hasOwnProperty.call(p, "text")) {
+      p.text = formatUserChannelMessage(p.text);
+      console.log("FINAL USER MESSAGE:", p.text);
+    }
+    return tgCall("sendMessage", p);
+  }
+
+  async function editUserMessageText(payload) {
+    const p = { ...payload };
+    if (Object.prototype.hasOwnProperty.call(p, "text")) {
+      p.text = formatUserChannelMessage(p.text);
+      console.log("FINAL USER MESSAGE:", p.text);
+    }
+    return tgCall("editMessageText", p);
+  }
+
+  /**
    * Kirim pesan dengan Markdown, fallback ke plain text jika entity parsing gagal.
    * Ini mencegah error "can't parse entities" saat response AI mengandung
    * Markdown yang tidak lengkap (misal * atau _ yang tidak tertutup).
    */
-  async function safeSend(chatId, text, messageIdToEdit = null) {
-    const plainText = String(text || "").trim() || "(tidak ada respons)";
+  async function sendMarkdownToUser(chatId, text, messageIdToEdit = null) {
+    const formatted = formatUserChannelMessage(text);
+    const plainText = String(formatted || "").trim() || "(tidak ada respons)";
 
     // Coba dengan parse_mode Markdown
     try {
       if (messageIdToEdit) {
-        return await tgCall("editMessageText", {
+        return await editUserMessageText({
           chat_id: chatId,
           message_id: messageIdToEdit,
           text: plainText,
           parse_mode: "Markdown",
         });
       }
-      return await tgCall("sendMessage", {
+      return await sendMessageToUser({
         chat_id: chatId,
         text: plainText,
         parse_mode: "Markdown",
@@ -152,17 +197,17 @@ function createTelegramChannel({
       // Fallback: kirim sebagai plain text (tanpa formatting)
       if (messageIdToEdit) {
         try {
-          return await tgCall("editMessageText", {
+          return await editUserMessageText({
             chat_id: chatId,
             message_id: messageIdToEdit,
             text: plainText,
           });
         } catch (_editErr) {
           // editMessageText gagal (misal pesan sudah terlalu lama) — kirim baru
-          return await tgCall("sendMessage", { chat_id: chatId, text: plainText });
+          return await sendMessageToUser({ chat_id: chatId, text: plainText });
         }
       }
-      return await tgCall("sendMessage", { chat_id: chatId, text: plainText });
+      return await sendMessageToUser({ chat_id: chatId, text: plainText });
     }
   }
 
@@ -194,7 +239,7 @@ function createTelegramChannel({
     switch (step) {
       case "awaiting_name": {
         personaStore.set(chatIdStr, { agentName: text, onboardingStep: "awaiting_character" });
-        await tgCall("sendMessage", {
+        await sendMessageToUser({
           chat_id: chatId,
           text:
             `✨ Nama yang bagus! Mulai sekarang panggil aku *${text}*!\n\n` +
@@ -208,7 +253,7 @@ function createTelegramChannel({
 
       case "awaiting_character": {
         personaStore.set(chatIdStr, { character: text, onboardingStep: "awaiting_skills" });
-        await tgCall("sendMessage", {
+        await sendMessageToUser({
           chat_id: chatId,
           text:
             `💪 Karakter diterima!\n\n` +
@@ -222,7 +267,7 @@ function createTelegramChannel({
 
       case "awaiting_skills": {
         personaStore.set(chatIdStr, { skills: text, onboardingStep: "awaiting_callsign" });
-        await tgCall("sendMessage", {
+        await sendMessageToUser({
           chat_id: chatId,
           text:
             `🎯 Skill tercatat!\n\n` +
@@ -237,7 +282,7 @@ function createTelegramChannel({
       case "awaiting_callsign": {
         personaStore.set(chatIdStr, { ownerCallSign: text, onboardingStep: "done" });
         const persona = personaStore.get(chatIdStr);
-        await tgCall("sendMessage", {
+        await sendMessageToUser({
           chat_id: chatId,
           text:
             `🎉 *Setup Selesai!*\n\n` +
@@ -275,23 +320,23 @@ function createTelegramChannel({
     // /pair — pairing flow (sebelum semua)
     if (text.startsWith("/pair")) {
       if (!pairingEnabled) {
-        await tgCall("sendMessage", { chat_id: chatId, text: "Mode pairing tidak aktif." });
+        await sendMessageToUser({ chat_id: chatId, text: "Mode pairing tidak aktif." });
         return;
       }
 
       const providedCode = text.replace(/^\/pair\s*/i, "").trim();
       if (!pairingCode) {
-        await tgCall("sendMessage", { chat_id: chatId, text: "Pairing code belum dikonfigurasi di server." });
+        await sendMessageToUser({ chat_id: chatId, text: "Pairing code belum dikonfigurasi di server." });
         return;
       }
 
       if (providedCode !== pairingCode) {
-        await tgCall("sendMessage", { chat_id: chatId, text: "Pairing code salah." });
+        await sendMessageToUser({ chat_id: chatId, text: "Pairing code salah." });
         return;
       }
 
       store.pair(chatIdStr);
-      await tgCall("sendMessage", {
+      await sendMessageToUser({
         chat_id: chatId,
         text: `Pairing berhasil. Chat ${chatIdStr} sekarang terdaftar.`,
       });
@@ -300,7 +345,7 @@ function createTelegramChannel({
 
     if (text.startsWith("/unpair")) {
       store.unpair(chatIdStr);
-      await tgCall("sendMessage", {
+      await sendMessageToUser({
         chat_id: chatId,
         text: `Chat ${chatIdStr} sudah dihapus dari daftar pairing.`,
       });
@@ -311,7 +356,7 @@ function createTelegramChannel({
     if (text === "/start") {
       // Jika pairing aktif dan belum paired, /start hanya tampilkan instruksi pairing
       if (pairingEnabled && !store.isPaired(chatIdStr)) {
-        await tgCall("sendMessage", {
+        await sendMessageToUser({
           chat_id: chatId,
           text:
             `👋 *Selamat datang!*\n\n` +
@@ -323,7 +368,7 @@ function createTelegramChannel({
         return;
       }
       personaStore.set(chatIdStr, { onboardingStep: "awaiting_name" });
-      await tgCall("sendMessage", {
+      await sendMessageToUser({
         chat_id: chatId,
         text:
           `🌟 *Selamat Datang di AI Agent Platform Starclaw!*\n\n` +
@@ -342,7 +387,7 @@ function createTelegramChannel({
 
     // Semua command selain /pair, /unpair, /start wajib paired terlebih dahulu
     if (pairingEnabled && !store.isPaired(chatIdStr)) {
-      await tgCall("sendMessage", {
+      await sendMessageToUser({
         chat_id: chatId,
         text: "Akses ditolak. Chat belum terdaftar.\nSilakan pairing dulu: /pair <code>",
       });
@@ -353,7 +398,7 @@ function createTelegramChannel({
     if (text === "/reset_persona") {
       personaStore.delete(chatIdStr);
       personaStore.set(chatIdStr, { onboardingStep: "awaiting_name" });
-      await tgCall("sendMessage", {
+      await sendMessageToUser({
         chat_id: chatId,
         text:
           `🔄 Persona direset!\n\n` +
@@ -372,7 +417,7 @@ function createTelegramChannel({
 
     // Jika belum pernah onboarding, arahkan ke /start
     if (!personaStore.isOnboarded(chatIdStr)) {
-      await tgCall("sendMessage", {
+      await sendMessageToUser({
         chat_id: chatId,
         text: "Aku belum punya identitas! Ketik /start untuk memulai setup persona.",
       });
@@ -382,7 +427,7 @@ function createTelegramChannel({
     // /help
     if (text === "/help") {
       const persona = personaStore.get(chatIdStr);
-      await tgCall("sendMessage", {
+      await sendMessageToUser({
         chat_id: chatId,
         text:
           `🤖 *${persona.agentName}* — Bantuan\n\n` +
@@ -403,7 +448,7 @@ function createTelegramChannel({
     if (text.startsWith("/model")) {
       const sub = text.replace(/^\/model\s*/i, "").trim();
       if (!sub || sub === "get") {
-        await tgCall("sendMessage", {
+        await sendMessageToUser({
           chat_id: chatId,
           text: `🧠 Model aktif: \`${modelManager.getModel()}\`\n\nDidukung:\n${modelManager.listSupported().map(m => `• \`${m}\``).join("\n")}\n\nContoh: /model set gemini-1.5-pro`,
           parse_mode: "Markdown",
@@ -414,17 +459,17 @@ function createTelegramChannel({
         const id = sub.replace(/^set\s+/i, "").trim();
         try {
           const set = modelManager.setModel(id);
-          await tgCall("sendMessage", {
+          await sendMessageToUser({
             chat_id: chatId,
             text: `✅ Model diset ke: \`${set}\``,
             parse_mode: "Markdown",
           });
         } catch (e) {
-          await tgCall("sendMessage", { chat_id: chatId, text: `❌ ${e.message}` });
+          await sendMessageToUser({ chat_id: chatId, text: `❌ ${e.message}` });
         }
         return;
       }
-      await tgCall("sendMessage", {
+      await sendMessageToUser({
         chat_id: chatId,
         text: "⚠️ Gunakan: /model get  atau  /model set <model-id>",
       });
@@ -436,7 +481,7 @@ function createTelegramChannel({
       const persona = personaStore.get(chatIdStr);
       const uptimeSec = Math.floor(process.uptime());
       const mem = process.memoryUsage();
-      await tgCall("sendMessage", {
+      await sendMessageToUser({
         chat_id: chatId,
         text:
           `📊 *Status Agent*\n\n` +
@@ -462,7 +507,7 @@ function createTelegramChannel({
 
       // /plugin (tanpa argumen) — tampilkan menu plugin
       if (!subCmd) {
-        await tgCall("sendMessage", {
+        await sendMessageToUser({
           chat_id: chatId,
           text:
             `🔌 *Plugin Manager — ${persona.agentName}*\n\n` +
@@ -498,7 +543,7 @@ function createTelegramChannel({
               }
             });
         }
-        await tgCall("sendMessage", {
+        await sendMessageToUser({
           chat_id: chatId,
           text: folders.length > 0
             ? `🔌 *Plugin Terinstall (${folders.length}):*\n\n${folders.join("\n")}`
@@ -515,7 +560,7 @@ function createTelegramChannel({
           const status = p.installed ? "✅" : "⬜";
           return `${status} *${p.name}* — ${p.description}`;
         });
-        await tgCall("sendMessage", {
+        await sendMessageToUser({
           chat_id: chatId,
           text:
             `🏪 *ClawHub Plugin Store*\n\n` +
@@ -531,13 +576,13 @@ function createTelegramChannel({
       if (subCmd.startsWith("create ")) {
         const pluginName = subCmd.replace("create ", "").trim();
         if (!pluginName) {
-          await tgCall("sendMessage", { chat_id: chatId, text: "⚠️ Format: /plugin create <nama_plugin>" });
+          await sendMessageToUser({ chat_id: chatId, text: "⚠️ Format: /plugin create <nama_plugin>" });
           return;
         }
         const result = clawHub.createPluginTemplate(pluginName, {
           description: `Plugin ${pluginName} dibuat oleh ${persona.ownerCallSign}`,
         });
-        await tgCall("sendMessage", {
+        await sendMessageToUser({
           chat_id: chatId,
           text: result.success
             ? `✅ Plugin *${pluginName}* berhasil dibuat!\n\nFile: \`plugins/${pluginName}/index.js\`\n\nEdit file tersebut untuk menambahkan logika, lalu aktifkan dengan:\n/plugin load ${pluginName}`
@@ -551,9 +596,9 @@ function createTelegramChannel({
       if (subCmd.startsWith("install ")) {
         const source = subCmd.replace("install ", "").trim();
         const inferredName = source.split("/").pop().replace(".git", "");
-        await tgCall("sendMessage", { chat_id: chatId, text: `⏳ Installing dari ${source}...` });
+        await sendMessageToUser({ chat_id: chatId, text: `⏳ Installing dari ${source}...` });
         const result = await clawHub.installFromGitHub(inferredName, source);
-        await tgCall("sendMessage", {
+        await sendMessageToUser({
           chat_id: chatId,
           text: result.success
             ? `✅ ${result.message}`
@@ -565,7 +610,7 @@ function createTelegramChannel({
       // /plugin load <nama>
       if (subCmd.startsWith("load ")) {
         const pluginName = subCmd.replace("load ", "").trim();
-        await tgCall("sendMessage", {
+        await sendMessageToUser({
           chat_id: chatId,
           text: `⏳ Memuat plugin '${pluginName}'... Gunakan pesan biasa untuk memerintahkan agent meload plugin.`,
         });
@@ -574,7 +619,7 @@ function createTelegramChannel({
 
       // /plugin loadall
       if (subCmd === "loadall") {
-        await tgCall("sendMessage", {
+        await sendMessageToUser({
           chat_id: chatId,
           text: `⏳ Memuat semua plugin... Kirim pesan: "muat semua plugin" untuk mengaktifkan via agent.`,
         });
@@ -586,12 +631,12 @@ function createTelegramChannel({
         const pluginName = subCmd.replace("run ", "").trim();
         const pluginDir = path.resolve(process.cwd(), "plugins", pluginName);
         if (!fs.existsSync(pluginDir)) {
-          await tgCall("sendMessage", { chat_id: chatId, text: `❌ Plugin '${pluginName}' tidak ditemukan di plugins/` });
+          await sendMessageToUser({ chat_id: chatId, text: `❌ Plugin '${pluginName}' tidak ditemukan di plugins/` });
           return;
         }
-        await tgCall("sendMessage", { chat_id: chatId, text: `⏳ Menjalankan '${pluginName}' sebagai service...` });
+        await sendMessageToUser({ chat_id: chatId, text: `⏳ Menjalankan '${pluginName}' sebagai service...` });
         const result = await processManager.startPlugin(pluginName, pluginDir);
-        await tgCall("sendMessage", {
+        await sendMessageToUser({
           chat_id: chatId,
           text: result.success
             ? `🟢 *${pluginName}* berjalan!\n\n🌐 URL: ${result.url}\n🔢 Port: ${result.port}\n📌 PID: ${result.pid}`
@@ -605,7 +650,7 @@ function createTelegramChannel({
       if (subCmd.startsWith("stop ")) {
         const pluginName = subCmd.replace("stop ", "").trim();
         const result = processManager.stopPlugin(pluginName);
-        await tgCall("sendMessage", {
+        await sendMessageToUser({
           chat_id: chatId,
           text: result.success ? `🔴 ${result.message}` : `❌ ${result.error}`,
         });
@@ -616,14 +661,14 @@ function createTelegramChannel({
       if (subCmd === "proses" || subCmd === "ps") {
         const list = processManager.listProcesses();
         if (list.length === 0) {
-          await tgCall("sendMessage", { chat_id: chatId, text: "📭 Tidak ada plugin process yang berjalan." });
+          await sendMessageToUser({ chat_id: chatId, text: "📭 Tidak ada plugin process yang berjalan." });
           return;
         }
         const lines = list.map(p => {
           const statusIcon = p.status === "running" ? "🟢" : p.status === "crashed" ? "🔴" : "⚪";
           return `${statusIcon} *${p.name}* — Port ${p.port} (PID: ${p.pid})\n   URL: ${p.url} | ${p.command}`;
         });
-        await tgCall("sendMessage", {
+        await sendMessageToUser({
           chat_id: chatId,
           text: `⚡ *Plugin Processes (${list.length}):*\n\n${lines.join("\n\n")}`,
           parse_mode: "Markdown",
@@ -636,10 +681,10 @@ function createTelegramChannel({
         const pluginName = subCmd.replace("logs ", "").trim();
         const logs = processManager.getLogs(pluginName, 15);
         if (!logs) {
-          await tgCall("sendMessage", { chat_id: chatId, text: `❌ Plugin '${pluginName}' tidak ditemukan` });
+          await sendMessageToUser({ chat_id: chatId, text: `❌ Plugin '${pluginName}' tidak ditemukan` });
           return;
         }
-        await tgCall("sendMessage", {
+        await sendMessageToUser({
           chat_id: chatId,
           text: `📋 *Logs: ${pluginName}*\n\n\`\`\`\n${logs.join("\n") || "(kosong)"}\n\`\`\``,
           parse_mode: "Markdown",
@@ -647,7 +692,7 @@ function createTelegramChannel({
         return;
       }
 
-      await tgCall("sendMessage", {
+      await sendMessageToUser({
         chat_id: chatId,
         text: "⚠️ Sub-command tidak dikenal. Ketik /plugin untuk melihat bantuan.",
       });
@@ -661,7 +706,7 @@ function createTelegramChannel({
 
       // /cron (tanpa argumen) — menu bantuan
       if (!subCmd) {
-        await tgCall("sendMessage", {
+        await sendMessageToUser({
           chat_id: chatId,
           text:
             `⏰ *Cron Job Manager — ${persona.agentName}*\n\n` +
@@ -682,7 +727,7 @@ function createTelegramChannel({
       if (subCmd === "list") {
         const jobs = cronManager.listJobs();
         if (jobs.length === 0) {
-          await tgCall("sendMessage", { chat_id: chatId, text: "📭 Belum ada cron job. Buat dengan:\n/cron add 5m cek status website" });
+          await sendMessageToUser({ chat_id: chatId, text: "📭 Belum ada cron job. Buat dengan:\n/cron add 5m cek status website" });
           return;
         }
         const lines = jobs.map((j, i) => {
@@ -694,7 +739,7 @@ function createTelegramChannel({
           const typeLabel = j.datetime ? "[1x]" : "[rutin]";
           return `${status} *${j.name}* ${typeLabel}\n   ${schedule} | Run: ${j.runCount}x | Last: ${lastRun}\n   ID: \`${j.id}\``;
         });
-        await tgCall("sendMessage", {
+        await sendMessageToUser({
           chat_id: chatId,
           text: `⏰ *Cron Jobs (${jobs.length}):*\n\n${lines.join("\n\n")}`,
           parse_mode: "Markdown",
@@ -708,7 +753,7 @@ function createTelegramChannel({
         const timeStr = parts[0];
         const task = parts.slice(1).join(" ");
         if (!timeStr || !task) {
-          await tgCall("sendMessage", { chat_id: chatId, text: "⚠️ Format: /cron add <interval> <task>\nContoh: /cron add 5m cek status website" });
+          await sendMessageToUser({ chat_id: chatId, text: "⚠️ Format: /cron add <interval> <task>\nContoh: /cron add 5m cek status website" });
           return;
         }
 
@@ -717,7 +762,7 @@ function createTelegramChannel({
         const datetime = !isInterval ? timeStr : null;
 
         const result = cronManager.addJob({ name: task.slice(0, 50), task, interval, datetime, chatId: chatIdStr });
-        await tgCall("sendMessage", {
+        await sendMessageToUser({
           chat_id: chatId,
           text: result.success
             ? `✅ *Cron job dibuat!*\n\n📋 *Task:* ${task}\n⏱ *Jadwal:* ${isInterval ? "Setiap " + interval : new Date(datetime).toLocaleString()}\n🆔 *ID:* \`${result.job.id}\`\n\nJob akan berjalan otomatis dan mengirim hasilnya ke chat ini.`
@@ -731,21 +776,21 @@ function createTelegramChannel({
       if (subCmd.startsWith("remove ")) {
         const jobId = subCmd.replace("remove ", "").trim();
         const result = cronManager.removeJob(jobId);
-        await tgCall("sendMessage", {
+        await sendMessageToUser({
           chat_id: chatId,
           text: result.success ? `✅ ${result.message}` : `❌ ${result.error}`,
         });
         return;
       }
 
-      await tgCall("sendMessage", { chat_id: chatId, text: "⚠️ Sub-command tidak dikenal. Ketik /cron untuk bantuan." });
+      await sendMessageToUser({ chat_id: chatId, text: "⚠️ Sub-command tidak dikenal. Ketik /cron untuk bantuan." });
       return;
     }
 
     // /doctor — health check via doctor tool
     if (text === "/doctor") {
       const persona = personaStore.get(chatIdStr);
-      await tgCall("sendMessage", {
+      await sendMessageToUser({
         chat_id: chatId,
         text: `⏳ ${persona.agentName} sedang menjalankan diagnostik sistem...`,
       });
@@ -755,12 +800,12 @@ function createTelegramChannel({
           message: "Jalankan doctor-tool action health-report dan laporkan hasilnya",
           __agentName: persona.agentName,
         });
-        await tgCall("sendMessage", {
+        await sendMessageToUser({
           chat_id: chatId,
           text: doctorResult.finalResponse || doctorResult.summary || "Diagnostik selesai.",
         });
       } catch (err) {
-        await tgCall("sendMessage", {
+        await sendMessageToUser({
           chat_id: chatId,
           text: `❌ Error diagnostik: ${err.message}`,
         });
@@ -777,7 +822,7 @@ function createTelegramChannel({
         action: "reroute-link",
       });
 
-      await tgCall("sendMessage", {
+      await sendMessageToUser({
         chat_id: chatId,
         text:
           "NOC workflow selesai.\n" +
@@ -792,7 +837,7 @@ function createTelegramChannel({
     // /audit — OpenClaw audit
     if (text.startsWith("/audit")) {
       const inputText = text.replace(/^\/audit\s*/i, "").trim() || text;
-      const progressMsg = await tgCall("sendMessage", {
+      const progressMsg = await sendMessageToUser({
         chat_id: chatId,
         text: "⏳ Menjalankan audit OpenClaw...",
       });
@@ -803,7 +848,7 @@ function createTelegramChannel({
           openclawSnapshot: buildOpenClawSnapshotFromText(inputText),
         });
 
-        await tgCall("editMessageText", {
+        await editUserMessageText({
           chat_id: chatId,
           message_id: progressMsg.message_id,
           text:
@@ -813,7 +858,7 @@ function createTelegramChannel({
             `Gaps: ${auditResult.gaps.map((g) => `${g.area}`).join(", ") || "-"}`,
         });
       } catch (err) {
-        await tgCall("editMessageText", {
+        await editUserMessageText({
           chat_id: chatId,
           message_id: progressMsg.message_id,
           text: `❌ Error: ${err.message}`
@@ -838,7 +883,7 @@ function createTelegramChannel({
         });
 
         if (result.success) {
-          await tgCall("sendMessage", {
+          await sendMessageToUser({
             chat_id: chatId,
             text: `✅ *Pengingat dibuat!*\n\n` +
               `📋 *Task:* ${parsed.task}\n` +
@@ -848,7 +893,7 @@ function createTelegramChannel({
             parse_mode: "Markdown",
           });
         } else {
-          await tgCall("sendMessage", {
+          await sendMessageToUser({
             chat_id: chatId,
             text: `❌ Gagal membuat pengingat: ${result.error}`,
           });
@@ -864,7 +909,7 @@ function createTelegramChannel({
       const persona = personaStore.get(chatIdStr);
       const personaContext = personaStore.buildSystemContext(chatIdStr);
 
-      const progressMsg = await tgCall("sendMessage", {
+      const progressMsg = await sendMessageToUser({
         chat_id: chatId,
         text: `⏳ ${persona.agentName} sedang berpikir...`,
       });
@@ -875,7 +920,7 @@ function createTelegramChannel({
       localBus.on(EVENT_TYPES.TOOL_CALLED, (evt) => {
         const tool = evt.payload.tool;
         const attempt = evt.payload.attempt > 1 ? ` (retry ${evt.payload.attempt})` : "";
-        tgCall("editMessageText", {
+        editUserMessageText({
           chat_id: chatId,
           message_id: progressMsg.message_id,
           text: `⏳ ${persona.agentName} Step ${stepCounter++}: ${tool}${attempt}...`
@@ -901,9 +946,9 @@ function createTelegramChannel({
         ? rawResponse
         : autoFormat(rawResponse);
 
-      await safeSend(chatId, responseText, progressMsg.message_id);
+      await sendMarkdownToUser(chatId, responseText, progressMsg.message_id);
     } catch (e) {
-      await safeSend(chatId, `❌ Error: ${e.message}\n\n➡️ Ketik 'cek status platform' untuk diagnostik`);
+      await sendMarkdownToUser(chatId, `❌ Error: ${e.message}\n\n➡️ Ketik 'cek status platform' untuk diagnostik`);
     }
   }
 
