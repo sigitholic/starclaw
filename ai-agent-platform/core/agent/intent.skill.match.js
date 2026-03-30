@@ -30,7 +30,14 @@ function isCommand(text) {
     t.includes("ping") ||
     t.includes("jalankan") ||
     t.includes("ambil") ||
-    t.includes("monitor")
+    t.includes("monitor") ||
+    t.includes("cpu") ||
+    t.includes("ram") ||
+    t.includes("memory") ||
+    t.includes("server") ||
+    t.includes("status") ||
+    t.includes("kondisi") ||
+    t.includes("platform")
   );
 }
 
@@ -104,38 +111,38 @@ function coerceForbiddenToolsToSkill(rawPlan, userMessage, skillRegistry) {
 /**
  * Deteksi skill dari teks (normalisasi + toleransi typo ringan).
  * Hanya dipanggil dari jalur command (isCommand).
+ * Prioritas: resource → platform → ping → fallback status umum.
  * @returns {{ skill: string, input: object } | null}
  */
 function detectSkill(text) {
   const t = normalize(text);
   if (!t) return null;
 
-  if (t.includes("ping")) {
-    return {
-      skill: "run-system-command",
-      input: { target: extractIP(text) || "127.0.0.1" },
-    };
-  }
+  const resourceIntent =
+    t.includes("cpu") ||
+    t.includes("ram") ||
+    t.includes("memory") ||
+    t.includes("server") ||
+    t.includes("srv");
 
-  if (
-    (t.includes("cek") || t.includes("crk")) &&
-    t.includes("kondisi") &&
-    (t.includes("server") || t.includes("srv"))
-  ) {
+  if (resourceIntent) {
     return {
       skill: "check-server-resource",
       input: {},
     };
   }
 
-  if (
-    t.includes("status") &&
-    t.includes("platform") &&
-    (t.includes("cek") || t.includes("crk") || t.includes("periksa"))
-  ) {
+  if (t.includes("platform")) {
     return {
       skill: "check-system-health",
       input: {},
+    };
+  }
+
+  if (t.includes("ping")) {
+    return {
+      skill: "run-system-command",
+      input: { target: extractIP(text) || "127.0.0.1" },
     };
   }
 

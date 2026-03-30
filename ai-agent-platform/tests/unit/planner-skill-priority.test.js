@@ -52,6 +52,20 @@ test("matchIntentToSkill: typo crk kondisi server → check-server-resource", ()
   assert.equal(raw.skill_name, "check-server-resource");
 });
 
+test("matchIntentToSkill: berapa cpu server → check-server-resource", () => {
+  const reg = createDefaultSkillRegistry();
+  const raw = matchIntentToSkill("berapa cpu server", reg);
+  assert.ok(raw);
+  assert.equal(raw.skill_name, "check-server-resource");
+});
+
+test("matchIntentToSkill: cek kondisi server → check-server-resource", () => {
+  const reg = createDefaultSkillRegistry();
+  const raw = matchIntentToSkill("cek kondisi server", reg);
+  assert.ok(raw);
+  assert.equal(raw.skill_name, "check-server-resource");
+});
+
 test("matchIntentToSkill: cek status platform → check-system-health (doctor)", () => {
   const reg = createDefaultSkillRegistry();
   const raw = matchIntentToSkill("cek status platform", reg);
