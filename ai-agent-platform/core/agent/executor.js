@@ -38,16 +38,38 @@ class Executor {
     const startTime = Date.now();
 
     for (const step of plan.steps || []) {
-      const tool = this.toolsRegistry.get(step.tool);
+      // ToolGuard: resolve dengan fuzzy match sebelum eksekusi
+      const resolved = typeof this.toolsRegistry.resolve === "function"
+        ? this.toolsRegistry.resolve(step.tool)
+        : { tool: this.toolsRegistry.get(step.tool), resolvedName: step.tool, wasExact: true };
+
+      const tool = resolved.tool;
+
       if (!tool) {
+        // Debug log lengkap
+        this.logger.error("INVALID_TOOL: Tool tidak ditemukan", {
+          requested: step.tool,
+          step: step.name,
+          available: resolved.available || this.toolsRegistry.list(),
+          hint: `Periksa nama tool. Tool tersedia: ${(resolved.available || this.toolsRegistry.list()).join(", ")}`,
+        });
         outputs.push({
           step: step.name,
-          tool: step.tool,         // Optimasi 3: sertakan tool name
+          tool: step.tool,
           status: "skipped",
-          reason: "tool-not-found",
+          reason: "INVALID_TOOL",
+          error: `Tool '${step.tool}' tidak ada di registry. Tersedia: ${(resolved.available || this.toolsRegistry.list()).slice(0, 5).join(", ")}...`,
         });
-        this.logger.warn("Tool tidak ditemukan", { step: step.name, tool: step.tool });
         continue;
+      }
+
+      // Log jika ada auto-correction fuzzy match
+      if (!resolved.wasExact && resolved.resolvedName) {
+        this.logger.warn("ToolGuard: fuzzy match diterapkan", {
+          requested: step.tool,
+          resolved: resolved.resolvedName,
+        });
+        step.tool = resolved.resolvedName; // Update step dengan nama yang benar
       }
 
       const maxRetries = Number.isInteger(step.maxRetries) && step.maxRetries >= 0

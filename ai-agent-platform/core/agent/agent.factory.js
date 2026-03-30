@@ -2,6 +2,7 @@
 
 const { BaseAgent } = require("./base.agent");
 const { Planner } = require("./planner");
+const { PlannerGuard } = require("./planner.guard");
 const { Executor } = require("./executor");
 const { createToolRegistry } = require("../tools");
 const { createDefaultLlmProvider, createPromptBuilder } = require("../llm/llm.provider");
@@ -19,14 +20,25 @@ function createBaseAgent({
   const selectedLlmProvider = llmProvider || createDefaultLlmProvider();
   const selectedPromptBuilder = promptBuilder || createPromptBuilder();
   const toolsRegistry = createToolRegistry(customTools);
-  
-  const planner = new Planner({ llmProvider: selectedLlmProvider, promptBuilder: selectedPromptBuilder, toolsRegistry, logger });
-  
+
+  // Planner dibalut PlannerGuard — memastikan tool_name selalu valid
+  const basePlanner = new Planner({
+    llmProvider: selectedLlmProvider,
+    promptBuilder: selectedPromptBuilder,
+    toolsRegistry,
+    logger,
+  });
+  const planner = new PlannerGuard({
+    planner: basePlanner,
+    toolsRegistry,
+    llmProvider: selectedLlmProvider,
+    logger,
+  });
+
   const { Reviewer } = require("./reviewer");
   const reviewer = new Reviewer({ llmProvider: selectedLlmProvider, logger });
-  
+
   const executor = new Executor({ toolsRegistry, logger });
-  // Teruskan nama agent ke memory untuk session persistence
   const memory = memoryFactory(name);
 
   return new BaseAgent({

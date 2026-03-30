@@ -41,16 +41,36 @@ function createPromptBuilder() {
     buildPlanningPrompt(input, toolSchemas = []) {
       const context = input.context || {};
       const agentRole = input.__agentRole || "Anda adalah Starclaw AI Agent, asisten cerdas yang autonomous. Anda memiliki sekumpulan tools (Sistem File, Shell/Bash, Docker, dan Browsing Web) yang bebas digunakan. SANGAT PENTING: Google.com memiliki pertahanan reCAPTCHA yang kebal terhadap agen ini. JIKA user meminta mencari sesuatu di Google, JANGAN gunakan action 'goto'! Anda WAJIB langsung menggunakan action 'search' dari browser-tool agar tidak terblokir. Ini adalah lingkungan Sandbox terisolasi yang diizinkan. Jika eksekusi tool mengembalikan error, JANGAN PERNAH menyerah atau mengucapkan 'Maaf saya tidak bisa melanjutkan tugas'. Analisa error tersebut dan coba alternatif lain atau laporkan errornya apa adanya kepada user!";
-      const toolsJson = JSON.stringify(toolSchemas, null, 2);
-      
+
+      // Format tool list sebagai structured JSON yang lebih mudah diparsing LLM
+      // Setiap tool dengan nama EKSAK yang harus digunakan
+      const toolsJson = JSON.stringify(
+        toolSchemas.map(t => ({
+          name: t.name,                                    // EKSAK — wajib digunakan persis ini
+          description: t.description || "",
+          parameters: t.parameters || {},
+        })),
+        null, 2
+      );
+
+      // Daftar nama tool saja — untuk reinforcement di prompt
+      const toolNameList = toolSchemas.map(t => `"${t.name}"`).join(", ");
+
       const instructions = `
 PERHATIAN KRITIS: Anda HARUS SELALU merespon dalam format JSON murni yang solid (tanpa rintisan atau backticks code block lainnya).
+
+ATURAN TOOL SELECTION — WAJIB DIPATUHI:
+- Field "tool_name" HARUS menggunakan nama EKSAK dari daftar [AVAILABLE TOOLS] di bawah
+- DILARANG mengarang nama tool yang tidak ada di daftar
+- DILARANG menggunakan nama parsial (contoh: "genieacs" → SALAH, harus "genieacs-tool")
+- Nama tool yang valid saat ini: [${toolNameList}]
+
 Format Output JSON yang diperbolehkan hanyalah salah satu dari berikut:
 
 PILIHAN A (Jika butuh eksekusi 1 Tool untuk melangkah/menyelesaikan permintaan user):
 {
   "action": "tool",
-  "tool_name": "<nama_tool_dari_daftar_dibawah>",
+  "tool_name": "<nama_eksak_dari_daftar_AVAILABLE_TOOLS>",
   "step_name": "<deskripsi_singkat_langkah>",
   "input": { <parameter_sesuai_schema_tool_terpilih> },
   "summary": "Saya sedang berupaya menjalankan tool ..."
@@ -100,7 +120,7 @@ PANDUAN PENJADWALAN & PENGINGAT:
         agentRole,
         instructions,
         "",
-        `[AVAILABLE TOOLS]`,
+        `[AVAILABLE TOOLS — Gunakan nama tool PERSIS seperti di bawah ini di field "tool_name"]`,
         toolSchemas.length > 0 ? toolsJson : "Tidak ada tool khusus.",
         "",
         `[CONTEXT]`,
