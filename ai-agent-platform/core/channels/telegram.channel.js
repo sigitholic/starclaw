@@ -89,6 +89,55 @@ function createTelegramChannel({
     return body.result;
   }
 
+  /**
+   * Kirim pesan dengan Markdown, fallback ke plain text jika entity parsing gagal.
+   * Ini mencegah error "can't parse entities" saat response AI mengandung
+   * Markdown yang tidak lengkap (misal * atau _ yang tidak tertutup).
+   */
+  async function safeSend(chatId, text, messageIdToEdit = null) {
+    const plainText = String(text || "").trim() || "(tidak ada respons)";
+
+    // Coba dengan parse_mode Markdown
+    try {
+      if (messageIdToEdit) {
+        return await tgCall("editMessageText", {
+          chat_id: chatId,
+          message_id: messageIdToEdit,
+          text: plainText,
+          parse_mode: "Markdown",
+        });
+      }
+      return await tgCall("sendMessage", {
+        chat_id: chatId,
+        text: plainText,
+        parse_mode: "Markdown",
+      });
+    } catch (err) {
+      // Jika gagal karena entity parsing — kirim ulang tanpa parse_mode
+      const isParseError = err.message && (
+        err.message.includes("can't parse entities") ||
+        err.message.includes("Bad Request") ||
+        err.message.includes("parse_mode")
+      );
+      if (!isParseError) throw err;
+
+      // Fallback: kirim sebagai plain text (tanpa formatting)
+      if (messageIdToEdit) {
+        try {
+          return await tgCall("editMessageText", {
+            chat_id: chatId,
+            message_id: messageIdToEdit,
+            text: plainText,
+          });
+        } catch (_editErr) {
+          // editMessageText gagal (misal pesan sudah terlalu lama) — kirim baru
+          return await tgCall("sendMessage", { chat_id: chatId, text: plainText });
+        }
+      }
+      return await tgCall("sendMessage", { chat_id: chatId, text: plainText });
+    }
+  }
+
   function buildOpenClawSnapshotFromText(text) {
     const lower = String(text || "").toLowerCase();
     return {
@@ -787,18 +836,9 @@ function createTelegramChannel({
 
       const responseText = assistantResult.finalResponse || assistantResult.summary;
 
-      await tgCall("editMessageText", {
-        chat_id: chatId,
-        message_id: progressMsg.message_id,
-        text: responseText,
-      }).catch(async () => {
-        await tgCall("sendMessage", { chat_id: chatId, text: responseText });
-      });
+      await safeSend(chatId, responseText, progressMsg.message_id);
     } catch (e) {
-      await tgCall("sendMessage", {
-        chat_id: chatId,
-        text: `❌ Error: ${e.message}`,
-      });
+      await safeSend(chatId, `❌ Error: ${e.message}`);
     }
   }
 
