@@ -1,0 +1,13 @@
+{
+  "name": "starclaw-plugin-genieacs-monitor",
+  "version": "2.0.0",
+  "description": "GenieACS Monitor Plugin for Starclaw AI Agent",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js",
+    "test": "echo \"No tests for tool plugin\""
+  },
+  "keywords": ["starclaw", "plugin", "genieacs", "tr069"],
+  "license": "MIT"
+}

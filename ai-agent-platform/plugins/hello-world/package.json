@@ -1,0 +1,13 @@
+{
+  "name": "starclaw-plugin-hello-world",
+  "version": "1.0.0",
+  "description": "Hello World Plugin — template referensi untuk Starclaw AI Agent",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js",
+    "test": "echo \"No tests\""
+  },
+  "keywords": ["starclaw", "plugin", "example"],
+  "license": "MIT"
+}

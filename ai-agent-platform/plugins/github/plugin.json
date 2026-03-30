@@ -3,6 +3,8 @@
   "version": "1.0.0",
   "description": "Integrasi GitHub — baca repository, lihat issues, dan informasi repo",
   "author": "Starclaw",
+  "type": "tool",
+  "autoStart": false,
   "configSchema": [
     {
       "key": "GITHUB_TOKEN",

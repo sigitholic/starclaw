@@ -1,0 +1,13 @@
+{
+  "name": "starclaw-plugin-social-media",
+  "version": "1.0.0",
+  "description": "Social Media Plugin for Starclaw AI Agent",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js",
+    "test": "echo \"No tests for tool plugin\""
+  },
+  "keywords": ["starclaw", "plugin", "social-media", "telegram"],
+  "license": "MIT"
+}

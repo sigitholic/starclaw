@@ -3,115 +3,130 @@
 const { spawn } = require("child_process");
 const path = require("path");
 const fs = require("fs");
+const { validateServicePlugin, formatValidationResult } = require("./plugin.validator");
+const { injectPluginConfig } = require("./plugin.config.store");
 
 /**
- * Plugin Process Manager — menjalankan plugin tipe "app-service" sebagai child process.
+ * Plugin Process Manager — menjalankan plugin tipe "service" sebagai child process.
  *
- * Masalah:
- *   Starclaw berjalan di port 8080 (API) + 3001 (Dashboard).
- *   Plugin dari OpenClaw (misal openclaw-office) berjalan di port sendiri (misal 5173).
- *   Mereka adalah proses terpisah dan tidak bisa di-load sebagai module biasa.
+ * Arsitektur:
+ *   Starclaw core (port 8080) ← HTTP → Plugin Service (port 5100+)
  *
- * Solusi:
- *   Plugin Process Manager menjalankan app-type plugins sebagai child process,
- *   mengalokasikan port, dan menyimpan registry proses aktif.
- *   Starclaw core berkomunikasi dengan plugin via HTTP API.
+ * Prioritas command resolusi (sesuai permintaan):
+ *   1. scripts.start   → "npm run start"  (PRODUCTION)
+ *   2. scripts.dev     → "npm run dev"    (DEVELOPMENT fallback)
+ *   3. pkg.main        → "node <main>"    (FALLBACK)
+ *   4. ERROR — tidak ada entrypoint
  */
 function createPluginProcessManager({ basePort = 5100 } = {}) {
-  const processes = new Map(); // name → { process, port, status, startedAt, logs }
+  const processes = new Map(); // name → ProcessEntry
   let nextPort = basePort;
 
-  /**
-   * Alokasi port unik untuk plugin.
-   */
   function allocatePort() {
     return nextPort++;
   }
 
   /**
-   * Jalankan plugin app sebagai child process.
-   * @param {string} name - Nama plugin
-   * @param {string} pluginDir - Path absolut ke folder plugin
-   * @param {object} options - { command, env, port }
+   * Jalankan plugin service sebagai child process.
    */
   async function startPlugin(name, pluginDir, options = {}) {
     if (processes.has(name) && processes.get(name).status === "running") {
-      return { success: false, error: `Plugin '${name}' sudah berjalan di port ${processes.get(name).port}` };
+      return {
+        success: false,
+        error: `Plugin '${name}' sudah berjalan di port ${processes.get(name).port}`,
+      };
     }
 
     const normalizedDir = path.resolve(pluginDir);
-    if (!fs.existsSync(normalizedDir)) {
-      return { success: false, error: `Folder plugin tidak ditemukan: ${normalizedDir}` };
+
+    // === STEP 1: VALIDASI ===
+    const validation = validateServicePlugin(normalizedDir, name);
+    if (!validation.valid) {
+      const formatted = formatValidationResult(validation, name);
+      console.error(formatted);
+      return {
+        success: false,
+        error: `Plugin '${name}' tidak valid untuk dijalankan sebagai service`,
+        validationErrors: validation.errors,
+        hint: validation.errors.map(e => e.fix).filter(Boolean).join("\n"),
+      };
     }
 
-    // Deteksi start command
-    let startCmd = options.command || null;
-    let isVite = false;
-    const pkgPath = path.join(normalizedDir, "package.json");
-
-    if (!startCmd && fs.existsSync(pkgPath)) {
-      try {
-        const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
-        const scripts = pkg.scripts || {};
-        if (scripts.dev) {
-          startCmd = "npm run dev";
-          isVite = scripts.dev.includes("vite") || fs.existsSync(path.join(normalizedDir, "vite.config.ts")) || fs.existsSync(path.join(normalizedDir, "vite.config.js"));
-        } else if (scripts.start) {
-          startCmd = "npm start";
-        } else if (scripts.serve) {
-          startCmd = "npm run serve";
-        }
-      } catch { /* ignore */ }
+    // Log warnings jika ada
+    if (validation.warnings.length > 0) {
+      validation.warnings.forEach(w => {
+        console.warn(`[ProcessManager] ⚠️  ${name}: [${w.code}] ${w.message}`);
+      });
     }
+
+    // === STEP 2: INJECT PLUGIN CONFIG ===
+    injectPluginConfig(name);
+
+    // === STEP 3: RESOLUSI COMMAND (prioritas: start > dev > main) ===
+    let startCmd = options.command || validation.command;
+    const commandType = validation.commandType;
 
     if (!startCmd) {
-      return { success: false, error: `Tidak bisa menentukan start command untuk '${name}'. Tambahkan scripts.dev/start di package.json` };
+      return {
+        success: false,
+        error: `Plugin '${name}' tidak memiliki start command`,
+        detail: {
+          pluginDir: normalizedDir,
+          hint: "Tambahkan scripts.start, scripts.dev, atau field main di package.json",
+        },
+      };
     }
 
-    // === SMART PORT DETECTION ===
-    let port = options.port || null;
+    // === STEP 4: RESOLUSI PORT ===
+    let port = options.port || validation.port || null;
 
-    // 1. Deteksi port dari vite.config.ts/js
+    // Deteksi port dari vite.config
     if (!port) {
       for (const configFile of ["vite.config.ts", "vite.config.js"]) {
         const configPath = path.join(normalizedDir, configFile);
         if (fs.existsSync(configPath)) {
           try {
-            const configContent = fs.readFileSync(configPath, "utf-8");
-            // Cari pattern: port: 5180 atau port: NNNN
-            const portMatch = configContent.match(/port\s*:\s*(\d{4,5})/);
+            const content = fs.readFileSync(configPath, "utf-8");
+            const portMatch = content.match(/port\s*:\s*(\d{4,5})/);
             if (portMatch) {
               port = parseInt(portMatch[1], 10);
               console.log(`[ProcessManager] Port terdeteksi dari ${configFile}: ${port}`);
             }
-          } catch { /* ignore */ }
+          } catch (_) {}
         }
       }
     }
 
-    // 2. Jika masih belum ada, allocate port baru dan pass via --port flag
+    // Allocate port baru jika belum ada
     if (!port) {
       port = allocatePort();
-      // Override port untuk Vite
-      if (isVite && startCmd === "npm run dev") {
-        startCmd = `npm run dev -- --port ${port}`;
-      }
     }
 
-    const logs = [];
+    // Untuk Vite/dev server, pass port via flag jika belum ada
+    const isVite = commandType === "npm-dev" && (
+      fs.existsSync(path.join(normalizedDir, "vite.config.ts")) ||
+      fs.existsSync(path.join(normalizedDir, "vite.config.js"))
+    );
+    if (isVite && !validation.port && !options.port) {
+      startCmd = `${startCmd} -- --port ${port}`;
+    }
 
-    // Environment variables
+    // === STEP 5: SPAWN PROCESS ===
+    const logs = [];
     const env = {
       ...process.env,
       PORT: String(port),
+      PLUGIN_NAME: name,
       ...options.env,
     };
 
-    // Parse command
-    const [cmd, ...args] = startCmd.split(" ");
+    console.log(`[ProcessManager] Starting '${name}'`);
+    console.log(`  Command  : ${startCmd}`);
+    console.log(`  Type     : ${commandType}`);
+    console.log(`  Dir      : ${normalizedDir}`);
+    console.log(`  Port     : ${port}`);
 
-    console.log(`[ProcessManager] Starting '${name}' → ${startCmd} (port: ${port})`);
-
+    const [cmd, ...args] = startCmd.split(/\s+/);
     const child = spawn(cmd, args, {
       cwd: normalizedDir,
       env,
@@ -119,26 +134,29 @@ function createPluginProcessManager({ basePort = 5100 } = {}) {
       stdio: ["pipe", "pipe", "pipe"],
     });
 
-    // Capture logs (batasi 50 baris terakhir) + deteksi port dari output
     let detectedPort = port;
     const pushLog = (stream, prefix) => {
       stream.on("data", (chunk) => {
         const lines = chunk.toString().split("\n").filter(Boolean);
         for (const line of lines) {
-          logs.push(`[${prefix}] ${line}`);
-          if (logs.length > 50) logs.shift();
+          const logLine = `[${prefix}] ${line}`;
+          logs.push(logLine);
+          if (logs.length > 100) logs.shift();
 
-          // Parse port dari output Vite/Next.js: "Local: http://localhost:XXXX"
-          const urlMatch = line.match(/(?:Local|localhost|127\.0\.0\.1):?\s*(?:http:\/\/)?(?:localhost|127\.0\.0\.1):(\d{4,5})/i);
+          // Deteksi port dari output
+          const urlMatch = line.match(/(?:localhost|127\.0\.0\.1):(\d{4,5})/i);
           if (urlMatch) {
-            detectedPort = parseInt(urlMatch[1], 10);
+            const parsedPort = parseInt(urlMatch[1], 10);
+            if (parsedPort !== 8080 && parsedPort !== 3001) {
+              detectedPort = parsedPort;
+            }
           }
         }
       });
     };
 
-    pushLog(child.stdout, "out");
-    pushLog(child.stderr, "err");
+    pushLog(child.stdout, "stdout");
+    pushLog(child.stderr, "stderr");
 
     const entry = {
       process: child,
@@ -146,6 +164,7 @@ function createPluginProcessManager({ basePort = 5100 } = {}) {
       port,
       name,
       command: startCmd,
+      commandType,
       dir: normalizedDir,
       status: "running",
       startedAt: new Date().toISOString(),
@@ -156,72 +175,78 @@ function createPluginProcessManager({ basePort = 5100 } = {}) {
       entry.status = code === 0 ? "stopped" : "crashed";
       entry.exitCode = code;
       console.log(`[ProcessManager] Plugin '${name}' exited (code: ${code})`);
+      if (code !== 0 && logs.length > 0) {
+        console.error(`[ProcessManager] Last logs from '${name}':`);
+        logs.slice(-5).forEach(l => console.error(`  ${l}`));
+      }
     });
 
     child.on("error", (err) => {
       entry.status = "error";
       entry.error = err.message;
-      console.error(`[ProcessManager] Plugin '${name}' error: ${err.message}`);
+      console.error(`[ProcessManager] Plugin '${name}' spawn error: ${err.message}`);
     });
 
     processes.set(name, entry);
 
-    // Tunggu lebih lama (3 detik) agar Vite sempat startup
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    // Tunggu startup (lebih lama untuk TypeScript/Vite)
+    const startupWaitMs = isVite ? 4000 : 2000;
+    await new Promise(resolve => setTimeout(resolve, startupWaitMs));
 
     // Update port jika terdeteksi dari output
     if (detectedPort !== port) {
       entry.port = detectedPort;
       port = detectedPort;
-      console.log(`[ProcessManager] Port terupdate dari output: ${port}`);
     }
 
     if (entry.status !== "running") {
+      const recentLogs = logs.slice(-10);
+      console.error(`[ProcessManager] Plugin '${name}' gagal start. Recent logs:`);
+      recentLogs.forEach(l => console.error(`  ${l}`));
+
       return {
         success: false,
         error: `Plugin '${name}' gagal start (status: ${entry.status})`,
-        logs: logs.slice(-10),
+        exitCode: entry.exitCode,
+        logs: recentLogs,
+        hint: `Cek logs di atas. Jalankan manual: cd ${normalizedDir} && ${startCmd}`,
       };
     }
 
+    console.log(`[ProcessManager] Plugin '${name}' berjalan di http://localhost:${port} (PID: ${child.pid})`);
     return {
       success: true,
-      message: `Plugin '${name}' berjalan di port ${port} (PID: ${child.pid})`,
+      message: `Plugin '${name}' berjalan di port ${port}`,
       port,
       pid: child.pid,
       url: `http://localhost:${port}`,
+      command: startCmd,
+      commandType,
     };
   }
 
-  /**
-   * Stop plugin process.
-   */
   function stopPlugin(name) {
     const entry = processes.get(name);
     if (!entry) return { success: false, error: `Plugin '${name}' tidak ditemukan` };
-    if (entry.status !== "running") return { success: false, error: `Plugin '${name}' tidak sedang berjalan (status: ${entry.status})` };
+    if (entry.status !== "running") {
+      return { success: false, error: `Plugin '${name}' tidak sedang berjalan (status: ${entry.status})` };
+    }
 
     try {
       entry.process.kill("SIGTERM");
       entry.status = "stopping";
-
-      // Force kill setelah 5 detik
       setTimeout(() => {
         if (entry.status === "stopping") {
-          try { entry.process.kill("SIGKILL"); } catch { /* ignore */ }
+          try { entry.process.kill("SIGKILL"); } catch (_) {}
           entry.status = "killed";
         }
       }, 5000);
-
-      return { success: true, message: `Plugin '${name}' sedang dihentikan...` };
+      return { success: true, message: `Plugin '${name}' sedang dihentikan (PID: ${entry.pid})` };
     } catch (err) {
-      return { success: false, error: `Gagal stop: ${err.message}` };
+      return { success: false, error: `Gagal stop '${name}': ${err.message}` };
     }
   }
 
-  /**
-   * Daftar semua plugin process.
-   */
   function listProcesses() {
     return Array.from(processes.values()).map(p => ({
       name: p.name,
@@ -230,29 +255,23 @@ function createPluginProcessManager({ basePort = 5100 } = {}) {
       pid: p.pid,
       url: `http://localhost:${p.port}`,
       command: p.command,
+      commandType: p.commandType,
       startedAt: p.startedAt,
-      recentLogs: p.logs.slice(-5),
+      recentLogs: p.logs.slice(-3),
     }));
   }
 
-  /**
-   * Ambil logs dari plugin.
-   */
   function getLogs(name, count = 20) {
     const entry = processes.get(name);
     if (!entry) return null;
     return entry.logs.slice(-count);
   }
 
-  /**
-   * Stop semua plugin (graceful shutdown).
-   */
   function stopAll() {
     const results = [];
     for (const [name, entry] of processes) {
       if (entry.status === "running") {
-        const result = stopPlugin(name);
-        results.push({ name, ...result });
+        results.push({ name, ...stopPlugin(name) });
       }
     }
     return results;

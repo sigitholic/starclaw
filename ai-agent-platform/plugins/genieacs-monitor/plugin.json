@@ -3,6 +3,8 @@
   "version": "2.0.0",
   "description": "Manajemen perangkat CPE/ONT ISP via GenieACS ACS server (TR-069/CWMP)",
   "author": "Starclaw",
+  "type": "tool",
+  "autoStart": false,
   "configSchema": [
     {
       "key": "GENIEACS_URL",

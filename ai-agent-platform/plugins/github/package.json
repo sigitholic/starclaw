@@ -1,0 +1,13 @@
+{
+  "name": "starclaw-plugin-github",
+  "version": "1.0.0",
+  "description": "GitHub Plugin for Starclaw AI Agent",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js",
+    "test": "echo \"No tests\""
+  },
+  "keywords": ["starclaw", "plugin", "github"],
+  "license": "MIT"
+}

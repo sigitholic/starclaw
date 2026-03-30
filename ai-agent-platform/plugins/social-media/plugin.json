@@ -3,6 +3,8 @@
   "version": "1.0.0",
   "description": "Post konten ke Telegram, Twitter/X, webhook, dan kirim notifikasi email/push",
   "author": "Starclaw",
+  "type": "tool",
+  "autoStart": false,
   "configSchema": [
     {
       "key": "TELEGRAM_BOT_TOKEN",

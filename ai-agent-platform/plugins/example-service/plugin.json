@@ -1,0 +1,23 @@
+{
+  "name": "example-service",
+  "version": "1.0.0",
+  "description": "Contoh plugin tipe SERVICE — berjalan sebagai HTTP server terpisah",
+  "author": "Starclaw",
+  "type": "service",
+  "autoStart": false,
+  "port": 5110,
+  "healthEndpoint": "/health",
+  "configSchema": [
+    {
+      "key": "SERVICE_API_KEY",
+      "description": "API key untuk autentikasi service",
+      "required": false,
+      "sensitive": true
+    }
+  ],
+  "skills": [],
+  "tools": [],
+  "requires": {
+    "env": []
+  }
+}

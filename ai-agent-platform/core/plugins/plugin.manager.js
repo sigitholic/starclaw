@@ -4,6 +4,7 @@ const fs = require("fs");
 const path = require("path");
 const { validateToolContract } = require("../utils/validator");
 const { injectPluginConfig, readPluginConfig, readPluginManifest } = require("./plugin.config.store");
+const { validatePlugin, validateToolPlugin, formatValidationResult } = require("./plugin.validator");
 
 /**
  * Plugin Manager — dynamic plugin loader & lifecycle manager.
@@ -41,9 +42,20 @@ function createPluginManager({ toolsRegistry, orchestrator = null } = {}) {
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
 
-      const pluginPath = path.join(normalizedDir, entry.name, "index.js");
+      const pluginDir = path.join(normalizedDir, entry.name);
+
+      // Auto-detect tipe plugin
+      const pluginValidation = validatePlugin(pluginDir, entry.name);
+
+      if (pluginValidation.type === "service") {
+        // Plugin service tidak di-load sebagai module — hanya dicatat
+        console.log(`[PluginManager] Plugin '${entry.name}' adalah tipe 'service' — gunakan /plugin run untuk menjalankan`);
+        continue;
+      }
+
+      const pluginPath = path.join(pluginDir, "index.js");
       if (!fs.existsSync(pluginPath)) {
-        errors.push({ name: entry.name, error: "index.js tidak ditemukan" });
+        errors.push({ name: entry.name, error: "index.js tidak ditemukan (tipe tool)" });
         continue;
       }
 
@@ -62,22 +74,42 @@ function createPluginManager({ toolsRegistry, orchestrator = null } = {}) {
 
   /**
    * Load satu plugin dari path.
+   * Mendukung tipe "tool" (module) dan "service" (informasi saja — run via process.manager).
    */
   function loadPlugin(pluginPath, fallbackName) {
     const normalizedPath = path.resolve(pluginPath);
+    const pluginDir = path.dirname(normalizedPath);
+    const pluginConfigName = fallbackName || path.basename(pluginDir);
+
+    // === VALIDASI SEBELUM LOAD ===
+    const validation = validateToolPlugin(pluginDir, pluginConfigName);
+
+    if (!validation.valid) {
+      const formatted = formatValidationResult(validation, pluginConfigName);
+      console.error(formatted);
+      return {
+        success: false,
+        error: `Plugin '${pluginConfigName}' gagal validasi`,
+        validationErrors: validation.errors.map(e => `[${e.code}] ${e.message}`),
+        hint: validation.errors.map(e => e.fix).filter(Boolean).join(" | "),
+      };
+    }
+
+    // Log warnings dari validasi
+    if (validation.warnings.length > 0) {
+      validation.warnings.forEach(w => {
+        console.warn(`[PluginManager] ⚠️  ${pluginConfigName}: ${w.message}${w.fix ? ` → ${w.fix}` : ""}`);
+      });
+    }
 
     // Clear require cache agar bisa reload
     delete require.cache[normalizedPath];
 
-    // Inject config plugin sebelum load (agar env vars tersedia saat module di-require)
-    const pluginConfigName = fallbackName || path.basename(path.dirname(normalizedPath));
-    const restoreEnv = injectPluginConfig(pluginConfigName);
+    // Inject config plugin sebelum load
+    injectPluginConfig(pluginConfigName);
 
     const pluginModule = require(normalizedPath);
     const name = pluginModule.name || fallbackName;
-
-    // Restore env setelah load (config tetap ter-inject selama proses berjalan)
-    // Tidak perlu restore karena config harus persist selama plugin aktif
 
     if (!name) {
       return { success: false, error: "Plugin harus punya properti 'name'" };
