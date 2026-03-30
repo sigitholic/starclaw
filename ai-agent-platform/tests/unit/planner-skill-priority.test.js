@@ -3,10 +3,30 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { matchIntentToSkill, coerceForbiddenToolsToSkill } = require("../../core/agent/intent.skill.match");
+const {
+  matchIntentToSkill,
+  coerceForbiddenToolsToSkill,
+  planUserIntent,
+  isCommand,
+} = require("../../core/agent/intent.skill.match");
 const { selectRelevantTools, mergePlannerSchemas } = require("../../core/agent/tool.selector");
 const { createDefaultSkillRegistry } = require("../../core/skills/skill.runtime.registry");
 const { createToolRegistry } = require("../../core/tools");
+
+test("planUserIntent: pertanyaan umum → chat", () => {
+  const p = planUserIntent("what is your name?");
+  assert.equal(p.type, "chat");
+  assert.equal(p.message, "what is your name?");
+});
+
+test("planUserIntent: list skills → chat (bukan command keyword)", () => {
+  const p = planUserIntent("list skills");
+  assert.equal(p.type, "chat");
+});
+
+test("isCommand: ping → true", () => {
+  assert.equal(isCommand("Ping 192.168.1.1"), true);
+});
 
 test("matchIntentToSkill: ping → run-system-command dengan target", () => {
   const reg = createDefaultSkillRegistry();
@@ -49,6 +69,16 @@ test("coerceForbiddenToolsToSkill: shell-tool → run-system-command jika ada pi
   assert.equal(out.action, "skill");
   assert.equal(out.skill_name, "run-system-command");
   assert.equal(out.input.target, "10.0.0.1");
+});
+
+test("coerceForbiddenToolsToSkill: shell-tool tanpa intent skill → respond (bukan fallback check-system-health)", () => {
+  const reg = createDefaultSkillRegistry();
+  const out = coerceForbiddenToolsToSkill(
+    { action: "tool", tool_name: "shell-tool", input: {} },
+    "hello world no command",
+    reg,
+  );
+  assert.equal(out.action, "respond");
 });
 
 test("matchIntentToSkill: cek status → check-system-health", () => {
