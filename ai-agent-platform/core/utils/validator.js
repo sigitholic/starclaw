@@ -40,15 +40,17 @@ function validateStep(step, index) {
   }
 
   // action wajib
-  if (!step.action && !step.tool) {
+  if (!step.action && !step.tool && !step.skill && !step.skill_name) {
     throw new Error(
-      `${prefix}: step WAJIB punya field "action" (nilai: "tool" atau "respond"). ` +
+      `${prefix}: step WAJIB punya field "action" (nilai: "tool", "skill", atau "respond") atau field tool/skill. ` +
       `Diterima: ${JSON.stringify(Object.keys(step))}`
     );
   }
 
   // Jika action=tool atau tidak ada action tapi ada tool → validasi field tool
-  const effectiveAction = step.action || (step.tool ? "tool" : null);
+  const effectiveAction =
+    step.action || (step.tool || step.tool_name ? "tool" : null) ||
+    (step.skill || step.skill_name ? "skill" : null);
   if (effectiveAction === "tool") {
     const toolName = step.tool || step.tool_name;
     if (!toolName || typeof toolName !== "string" || toolName.trim() === "") {
@@ -64,6 +66,20 @@ function validateStep(step, index) {
       );
     }
   }
+  if (effectiveAction === "skill") {
+    const skillName = step.skill || step.skill_name;
+    if (!skillName || typeof skillName !== "string" || skillName.trim() === "") {
+      throw new Error(
+        `${prefix}: step dengan action="skill" WAJIB punya field "skill" atau "skill_name". ` +
+        `Diterima: skill=${JSON.stringify(step.skill)}, skill_name=${JSON.stringify(step.skill_name)}`
+      );
+    }
+    if (!isPlainObject(step.input) && step.input !== undefined) {
+      throw new Error(
+        `${prefix}: field "input" harus berupa object jika ada. Diterima: ${typeof step.input}`
+      );
+    }
+  }
 }
 
 /**
@@ -71,10 +87,22 @@ function validateStep(step, index) {
  * Format internal: { name, tool, input, timeoutMs, maxRetries }
  */
 function normalizeStep(step, index) {
+  if (step.action === "skill" || step.skill || step.skill_name) {
+    const skillName = step.skill || step.skill_name;
+    return {
+      name: step.step_name || step.name || `step-${index + 1}`,
+      tool: skillName,
+      isSkill: true,
+      input: isPlainObject(step.input) ? step.input : {},
+      timeoutMs: step.timeoutMs,
+      maxRetries: step.maxRetries,
+    };
+  }
   const toolName = step.tool || step.tool_name;
   return {
     name: step.step_name || step.name || `step-${index + 1}`,
     tool: toolName,
+    isSkill: false,
     input: isPlainObject(step.input) ? step.input : {},
     timeoutMs: step.timeoutMs,
     maxRetries: step.maxRetries,
@@ -147,7 +175,36 @@ function normalizePlannerDecision(rawDecision) {
   }
 
   // ----------------------------------------------------------------
-  // FORMAT 2: action = "tool" (single step)
+  // FORMAT 2a: action = "skill" (single step — skill layer)
+  // ----------------------------------------------------------------
+  if (rawDecision.action === "skill") {
+    const skillName = rawDecision.skill_name || rawDecision.skill;
+    if (!skillName || typeof skillName !== "string" || skillName.trim() === "") {
+      throw new Error(
+        'Planner action=skill wajib punya skill_name: field "skill_name" atau "skill" berisi nama skill yang valid. ' +
+        `Diterima: skill_name=${JSON.stringify(rawDecision.skill_name)}, skill=${JSON.stringify(rawDecision.skill)}`
+      );
+    }
+    return {
+      steps: [{
+        name: rawDecision.step_name || `run-${skillName}`,
+        tool: skillName,
+        isSkill: true,
+        input: isPlainObject(rawDecision.input) ? rawDecision.input : {},
+        timeoutMs: rawDecision.timeoutMs,
+        maxRetries: rawDecision.maxRetries,
+      }],
+      summary: rawDecision.summary || `Menjalankan skill ${skillName}`,
+      baseScore: typeof rawDecision.baseScore === "number" ? rawDecision.baseScore : 0,
+      gaps: [],
+      recommendations: [],
+      finalResponse: typeof rawDecision.response === "string" ? rawDecision.response : null,
+      plannerDecision: "tool",
+    };
+  }
+
+  // ----------------------------------------------------------------
+  // FORMAT 2b: action = "tool" (single step)
   // ----------------------------------------------------------------
   if (rawDecision.action === "tool") {
     const toolName = rawDecision.tool_name || rawDecision.tool;
@@ -161,6 +218,7 @@ function normalizePlannerDecision(rawDecision) {
       steps: [{
         name: rawDecision.step_name || `run-${toolName}`,
         tool: toolName,
+        isSkill: false,
         input: isPlainObject(rawDecision.input) ? rawDecision.input : {},
         timeoutMs: rawDecision.timeoutMs,
         maxRetries: rawDecision.maxRetries,
@@ -233,6 +291,7 @@ function normalizePlannerDecision(rawDecision) {
     typeof rawDecision.action === "string" &&
     rawDecision.action !== "respond" &&
     rawDecision.action !== "tool" &&
+    rawDecision.action !== "skill" &&
     rawDecision.action !== "multi-tool"
   ) {
     const looksLikeToolName = /^[a-z0-9_-]+$/i.test(rawDecision.action) && rawDecision.action.length < 60;
@@ -281,6 +340,7 @@ function normalizePlannerDecision(rawDecision) {
   throw new Error(
     "Planner output tidak valid. Format yang diterima:\n" +
     '  - { "action": "respond", "response": "..." }\n' +
+    '  - { "action": "skill", "skill_name": "nama-skill", "input": {} }\n' +
     '  - { "action": "tool", "tool_name": "nama-tool", "input": {} }\n' +
     '  - { "action": "multi-tool", "steps": [{ "action": "tool", "tool": "...", "input": {} }] }\n' +
     '  - { "type": "plan", "steps": [{ "action": "tool", "tool": "...", "input": {} }] }\n' +

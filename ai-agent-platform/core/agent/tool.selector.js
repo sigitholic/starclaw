@@ -18,6 +18,27 @@
 
 const { agentConfig } = require("../../config/agent.config");
 
+const SKILL_KEYWORDS = [
+  { skills: ["check-system-health"], pattern: /health|cek sistem|status platform|diagnosis|doctor/i },
+  { skills: ["run-system-command"], pattern: /shell|bash|command|terminal|exec|perintah|jalankan/i },
+  { skills: ["manage-files"], pattern: /file|folder|direktori|baca|tulis|hapus|buat file/i },
+  { skills: ["fetch-api-data"], pattern: /http|api call|fetch|curl|request|endpoint|rest api/i },
+  {
+    skills: ["search-web-info"],
+    pattern: /cari|search|google|informasi web|riset web|browse|website|halaman/i,
+  },
+  { skills: ["query-database"], pattern: /database|sqlite|query|insert|select|tabel|db/i },
+  { skills: ["search-codebase"], pattern: /cari kode|codebase|source code|grep code|refactor/i },
+  { skills: ["run-sub-agent"], pattern: /sub.?agent|delegasi|spawn|paralel|anak agent/i },
+  { skills: ["schedule-task"], pattern: /jadwal|schedule|cron|interval|reminder|pengingat/i },
+  { skills: ["manage-plugin"], pattern: /plugin|clawhub|konfigurasi plugin|plugin config/i },
+  { skills: ["send-notification"], pattern: /notifikasi|email|alert|kirim pesan/i },
+  { skills: ["post-to-social"], pattern: /twitter|tweet|instagram|facebook|sosmed|posting/i },
+  { skills: ["manage-container"], pattern: /docker|container|image|compose/i },
+  { skills: ["monitor-market"], pattern: /harga|forex|crypto|market|pasar|chart/i },
+  { skills: ["execute-trading"], pattern: /mt5|metatrader|order|buy|sell|mql5|ea\b|trading live/i },
+];
+
 // Tool yang selalu disertakan (core, ringan, sering dipakai)
 const ALWAYS_INCLUDE = new Set([
   "time-tool",
@@ -58,6 +79,20 @@ const TOOL_KEYWORDS = [
  * @param {number} options.maxTools - Batas jumlah tool (default dari config)
  * @returns {object[]} - Subset tool schemas yang relevan
  */
+/**
+ * Gabungkan schema tool + skill untuk prompt planner (skill = task-oriented layer).
+ */
+function mergePlannerSchemas(toolSchemas = [], skillSchemas = []) {
+  const tools = (toolSchemas || []).map(s => ({ ...s, plannerKind: "tool" }));
+  const skills = (skillSchemas || []).map(s => ({
+    ...s,
+    plannerKind: "skill",
+    name: s.name,
+    description: `[SKILL] ${s.description || s.name}`,
+  }));
+  return [...skills, ...tools];
+}
+
 function selectRelevantTools(allTools, message = "", options = {}) {
   if (!agentConfig.smartToolSelection) {
     return allTools;
@@ -82,7 +117,7 @@ function selectRelevantTools(allTools, message = "", options = {}) {
     if (toolMap.has(name) && selected.size < max) selected.add(name);
   }
 
-  // Layer 4: Keyword matching dari pesan
+  // Layer 4: Keyword matching dari pesan (tools + skills)
   if (message) {
     for (const { tools, pattern } of TOOL_KEYWORDS) {
       if (selected.size >= max) break;
@@ -90,6 +125,16 @@ function selectRelevantTools(allTools, message = "", options = {}) {
         for (const toolName of tools) {
           if (toolMap.has(toolName) && selected.size < max) {
             selected.add(toolName);
+          }
+        }
+      }
+    }
+    for (const { skills, pattern } of SKILL_KEYWORDS) {
+      if (selected.size >= max) break;
+      if (pattern.test(message)) {
+        for (const skillName of skills) {
+          if (toolMap.has(skillName) && selected.size < max) {
+            selected.add(skillName);
           }
         }
       }
@@ -117,4 +162,4 @@ function extractPreviousTools(observations = []) {
   return [...new Set(observations.map(o => o.tool).filter(Boolean))];
 }
 
-module.exports = { selectRelevantTools, extractPreviousTools };
+module.exports = { selectRelevantTools, extractPreviousTools, mergePlannerSchemas, SKILL_KEYWORDS };

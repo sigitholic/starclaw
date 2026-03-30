@@ -6,6 +6,9 @@ const assert = require("node:assert/strict");
 const { buildDefaultOrchestrator } = require("../../core/orchestrator/orchestrator");
 const { normalizePlannerDecision } = require("../../core/utils/validator");
 const { createToolRegistry } = require("../../core/tools");
+const { createDefaultSkillRegistry } = require("../../core/skills/skill.runtime.registry");
+const { Executor } = require("../../core/agent/executor");
+const { createLogger } = require("../../core/utils/logger");
 const { createShortMemory } = require("../../core/memory/short.memory");
 const { EVENT_TYPES } = require("../../core/events/event.types");
 
@@ -46,6 +49,45 @@ test("validator menolak planner output tidak valid", () => {
     () => normalizePlannerDecision({ action: "tool" }),
     /Planner action=tool wajib punya tool_name/,
   );
+});
+
+test("normalizePlannerDecision mendukung action skill", () => {
+  const plan = normalizePlannerDecision({
+    action: "skill",
+    skill_name: "fetch-api-data",
+    input: { url: "https://example.com" },
+    summary: "test skill",
+  });
+  assert.equal(plan.plannerDecision, "tool");
+  assert.equal(plan.steps.length, 1);
+  assert.equal(plan.steps[0].tool, "fetch-api-data");
+  assert.equal(plan.steps[0].isSkill, true);
+});
+
+test("executor menjalankan skill yang memanggil tool", async () => {
+  const toolsRegistry = createToolRegistry([]);
+  const skillRegistry = createDefaultSkillRegistry();
+  const logger = createLogger("test/skill-layer");
+  const executor = new Executor({ toolsRegistry, skillRegistry, logger });
+
+  const plan = {
+    plannerDecision: "tool",
+    steps: [
+      {
+        name: "step-1",
+        tool: "fetch-api-data",
+        isSkill: true,
+        input: {},
+      },
+    ],
+    summary: "skill test",
+  };
+
+  const out = await executor.execute(plan, {});
+  assert.equal(out.outputs.length, 1);
+  assert.equal(out.outputs[0].tool, "fetch-api-data");
+  assert.equal(out.outputs[0].status, "ok");
+  assert.equal(out.outputs[0].output.success, true);
 });
 
 test("tool registry menolak tool tanpa kontrak name/run", () => {

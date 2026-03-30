@@ -90,41 +90,49 @@ function createPromptBuilder() {
       const toolsJson = JSON.stringify(
         toolSchemas.map(t => ({
           name: t.name,                                    // EKSAK — wajib digunakan persis ini
+          kind: t.plannerKind || (t.name && t.name.endsWith("-tool") ? "tool" : "skill"),
           description: t.description || "",
           parameters: t.parameters || {},
         })),
         null, 2
       );
 
-      // Daftar nama tool saja — untuk reinforcement di prompt
+      // Daftar nama tool/skill saja — untuk reinforcement di prompt
       const toolNameList = toolSchemas.map(t => `"${t.name}"`).join(", ");
 
       const instructions = `
 OUTPUT WAJIB: JSON murni, tanpa teks tambahan, tanpa markdown code block.
 
-═══ ATURAN TOOL (WAJIB DIPATUHI) ═══
-1. Field "tool_name" HARUS nama EKSAK dari daftar [AVAILABLE TOOLS] di bawah
-2. DILARANG mengarang nama tool yang tidak ada di daftar
-3. DILARANG menggunakan nama parsial: "genieacs" SALAH → "genieacs-tool" BENAR
-4. DILARANG membuat step tanpa field "tool_name"
-5. Tool yang valid: [${toolNameList}]
+═══ PILIHAN: SKILL vs TOOL ═══
+- SKILL: tugas tingkat tinggi yang memetakan ke satu atau beberapa tool (lihat [AVAILABLE] — kind "skill"). UTAMAKAN skill untuk tugas kompleks, multi-langkah, atau ketika nama skill jelas sesuai kebutuhan.
+- TOOL: panggilan langsung ke satu tool (kind "tool"). Gunakan untuk tugas sederhana satu langkah (misalnya satu perintah shell atau satu query).
+
+═══ ATURAN NAMA (WAJIB DIPATUHI) ═══
+1. Untuk action "tool": field "tool_name" HARUS nama EKSAK dari daftar [AVAILABLE] dengan kind tool
+2. Untuk action "skill": field "skill_name" HARUS nama EKSAK dari daftar [AVAILABLE] dengan kind skill
+3. DILARANG mengarang nama yang tidak ada di daftar
+4. DILARANG menggunakan nama parsial: "genieacs" SALAH → "genieacs-tool" BENAR
+5. Nama yang valid termasuk: [${toolNameList}]
 
 ═══ FORMAT OUTPUT (pilih SATU) ═══
 
-▸ FORMAT A — Eksekusi 1 tool:
+▸ FORMAT A — Eksekusi 1 tool (langsung):
 { "action": "tool", "tool_name": "<nama_eksak_tool>", "step_name": "<deskripsi>", "input": { <params> }, "summary": "..." }
 
-▸ FORMAT B — Eksekusi BEBERAPA tool berurutan:
-{ "action": "multi-tool", "steps": [ { "action": "tool", "tool_name": "<tool_1>", "input": {} }, { "action": "tool", "tool_name": "<tool_2>", "input": {} } ], "summary": "..." }
+▸ FORMAT A2 — Eksekusi 1 skill (disarankan untuk tugas kompleks):
+{ "action": "skill", "skill_name": "<nama_eksak_skill>", "step_name": "<deskripsi>", "input": { <params> }, "summary": "..." }
+
+▸ FORMAT B — Eksekusi BEBERAPA langkah (tool dan/atau skill):
+{ "action": "multi-tool", "steps": [ { "action": "skill", "skill_name": "<skill_1>", "input": {} }, { "action": "tool", "tool_name": "<tool_2>", "input": {} } ], "summary": "..." }
 
 ▸ FORMAT C — Respond langsung (HANYA jika tugas 100% selesai):
 { "action": "respond", "response": "<teks jawaban final>", "summary": "Tugas selesai" }
 
-▸ FORMAT D — Plan terstruktur (untuk instruksi kompleks):
-{ "type": "plan", "steps": [ { "action": "tool", "tool": "<nama_eksak_tool>", "input": {} }, { "action": "tool", "tool": "<nama_eksak_tool>", "input": {} } ] }
+▸ FORMAT D — Plan terstruktur (instruksi kompleks):
+{ "type": "plan", "steps": [ { "action": "skill", "skill": "<nama_skill>", "input": {} }, { "action": "tool", "tool": "<nama_tool>", "input": {} } ] }
 
-LARANGAN KERAS: Jangan gunakan FORMAT C untuk menjawab "sedang mengerjakan". Jika masih ada tool yang harus dijalankan, WAJIB gunakan FORMAT A, B, atau D.
-LARANGAN KERAS: Setiap step dalam FORMAT B dan D HARUS punya field "tool_name" atau "tool".
+LARANGAN KERAS: Jangan gunakan FORMAT C untuk menjawab "sedang mengerjakan". Jika masih ada langkah eksekusi, WAJIB gunakan FORMAT A, A2, B, atau D.
+LARANGAN KERAS: Setiap step dalam FORMAT B dan D HARUS punya "tool_name"/"tool" untuk action tool, atau "skill_name"/"skill" untuk action skill.
 
 PANDUAN MENGGUNAKAN OBSERVASI:
 - Jika ada section [OBSERVATIONS] di bawah, itu adalah hasil eksekusi tool dari langkah sebelumnya.
@@ -150,7 +158,7 @@ PANDUAN PENJADWALAN & PENGINGAT:
         agentRole,
         instructions,
         "",
-        `[AVAILABLE TOOLS — Gunakan nama tool PERSIS seperti di bawah ini di field "tool_name"]`,
+        `[AVAILABLE — Gunakan nama PERSIS; untuk skill pakai field "skill_name", untuk tool pakai "tool_name"]`,
         toolSchemas.length > 0 ? toolsJson : "Tidak ada tool khusus.",
         "",
         `[CONTEXT]`,

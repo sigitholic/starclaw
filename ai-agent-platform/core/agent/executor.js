@@ -7,9 +7,23 @@ const { normalizeToolResult, formatFinalAnswer } = require("../llm/modelRouter")
 const { modelManager } = require("../llm/modelManager");
 
 class Executor {
-  constructor({ toolsRegistry, logger }) {
+  constructor({ toolsRegistry, skillRegistry, logger }) {
     this.toolsRegistry = toolsRegistry;
+    this.skillRegistry = skillRegistry || null;
     this.logger = logger;
+  }
+
+  /**
+   * Object tools untuk skill.run({ tools, input }) — referensi ke instance tool di registry.
+   */
+  getToolsHandle() {
+    const tools = {};
+    if (!this.toolsRegistry || typeof this.toolsRegistry.list !== "function") return tools;
+    for (const name of this.toolsRegistry.list()) {
+      const t = this.toolsRegistry.get(name);
+      if (t) tools[name] = t;
+    }
+    return tools;
   }
 
   async runWithTimeout(taskFn, timeoutMs) {
@@ -59,6 +73,130 @@ class Executor {
    * Eksekusi satu tool sesuai kontrak planner (strict).
    * Retry maksimal sesuai agentConfig.defaultToolMaxRetries (default 2).
    */
+  /**
+   * Eksekusi satu skill — membungkus tools tanpa mengubah kontrak tool.
+   */
+  async executeSkill(plan, input = {}) {
+    const eventBus = input && input.__eventBus ? input.__eventBus : null;
+    const agentName = input && input.__agentName ? input.__agentName : "unknown-agent";
+
+    const skillName = plan && plan.tool;
+    if (!skillName || typeof skillName !== "string" || skillName.trim() === "") {
+      return {
+        success: false,
+        message: "Invalid plan: missing skill name",
+      };
+    }
+
+    const skill = this.skillRegistry && typeof this.skillRegistry.get === "function"
+      ? this.skillRegistry.get(skillName)
+      : null;
+
+    if (!skill) {
+      this.logger.error("INVALID_SKILL: Skill tidak ditemukan", {
+        requested: skillName,
+        available: this.skillRegistry ? this.skillRegistry.list() : [],
+      });
+      return {
+        success: false,
+        message: "Skill not found",
+      };
+    }
+
+    const maxRetries = Number.isInteger(plan.maxRetries) && plan.maxRetries >= 0
+      ? plan.maxRetries
+      : (agentConfig.defaultToolMaxRetries ?? 2);
+    const timeoutMs = Number.isInteger(plan.timeoutMs) && plan.timeoutMs > 0
+      ? plan.timeoutMs
+      : (agentConfig.defaultToolTimeoutMs || 30000);
+
+    const totalAttempts = 1 + maxRetries;
+    let attempt = 0;
+    let lastError = null;
+    const tools = this.getToolsHandle();
+
+    while (attempt < totalAttempts) {
+      attempt++;
+      try {
+        if (eventBus) {
+          await eventBus.emit(EVENT_TYPES.TOOL_CALLED, {
+            timestamp: new Date().toISOString(),
+            agent: agentName,
+            payload: { tool: skillName, kind: "skill", attempt, maxRetries, timeoutMs },
+          });
+        }
+
+        this.logger.debug("Memanggil skill", { skill: skillName, attempt, maxRetries });
+
+        const rawOutput = await this.runWithTimeout(
+          () => skill.run({ tools, input: plan.input || {} }),
+          timeoutMs
+        );
+
+        const normalized = normalizeToolResult(rawOutput);
+        this.logger.debug("Skill result", { skill: skillName, success: normalized.success });
+
+        if (normalized.success === false) {
+          lastError = normalized.message || "skill reported failure";
+          this.logger.warn("Skill mengembalikan success=false", {
+            skill: skillName,
+            message: lastError,
+            attempt,
+          });
+          if (attempt < totalAttempts) {
+            await new Promise((r) => setTimeout(r, 500 * attempt));
+            continue;
+          }
+          if (eventBus) {
+            await eventBus.emit(EVENT_TYPES.TOOL_RESULT, {
+              timestamp: new Date().toISOString(),
+              agent: agentName,
+              payload: { tool: skillName, kind: "skill", status: "error", attempt, reason: lastError },
+            });
+          }
+          return normalized;
+        }
+
+        if (eventBus) {
+          await eventBus.emit(EVENT_TYPES.TOOL_RESULT, {
+            timestamp: new Date().toISOString(),
+            agent: agentName,
+            payload: { tool: skillName, kind: "skill", status: "ok", attempt },
+          });
+        }
+        return normalized;
+      } catch (err) {
+        lastError = err.message;
+        this.logger.warn("Skill gagal", {
+          skill: skillName,
+          attempt,
+          remaining: totalAttempts - attempt,
+          message: err.message,
+        });
+
+        if (attempt >= totalAttempts) {
+          if (eventBus) {
+            await eventBus.emit(EVENT_TYPES.TOOL_RESULT, {
+              timestamp: new Date().toISOString(),
+              agent: agentName,
+              payload: { tool: skillName, kind: "skill", status: "error", attempt, reason: err.message },
+            });
+          }
+          return {
+            success: false,
+            message: err.message,
+          };
+        }
+        await new Promise((r) => setTimeout(r, 500 * attempt));
+      }
+    }
+
+    return {
+      success: false,
+      message: lastError || "Skill execution failed",
+    };
+  }
+
   async executeTool(plan, input = {}) {
     const eventBus = input && input.__eventBus ? input.__eventBus : null;
     const agentName = input && input.__agentName ? input.__agentName : "unknown-agent";
@@ -294,13 +432,20 @@ class Executor {
         input: step.input || {},
         timeoutMs: step.timeoutMs,
         maxRetries: step.maxRetries,
+        isSkill: Boolean(step.isSkill),
       };
 
-      const normalized = await this.executeTool(planStep, {
-        ...input,
-        __eventBus: eventBus,
-        __agentName: agentName,
-      });
+      const normalized = step.isSkill
+        ? await this.executeSkill(planStep, {
+          ...input,
+          __eventBus: eventBus,
+          __agentName: agentName,
+        })
+        : await this.executeTool(planStep, {
+          ...input,
+          __eventBus: eventBus,
+          __agentName: agentName,
+        });
 
       if (normalized.success === false) {
         outputs.push({

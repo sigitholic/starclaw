@@ -5,6 +5,7 @@ const { Planner } = require("./planner");
 const { PlannerGuard } = require("./planner.guard");
 const { Executor } = require("./executor");
 const { createToolRegistry } = require("../tools");
+const { createDefaultSkillRegistry } = require("../skills/skill.runtime.registry");
 const { createDefaultLlmProvider, createPromptBuilder } = require("../llm/llm.provider");
 const { createMemory } = require("../memory/short.memory");
 const { createLogger } = require("../utils/logger");
@@ -20,17 +21,20 @@ function createBaseAgent({
   const selectedLlmProvider = llmProvider || createDefaultLlmProvider();
   const selectedPromptBuilder = promptBuilder || createPromptBuilder();
   const toolsRegistry = createToolRegistry(customTools);
+  const skillRegistry = createDefaultSkillRegistry();
 
   // Planner dibalut PlannerGuard — memastikan tool_name selalu valid
   const basePlanner = new Planner({
     llmProvider: selectedLlmProvider,
     promptBuilder: selectedPromptBuilder,
     toolsRegistry,
+    skillRegistry,
     logger,
   });
   const planner = new PlannerGuard({
     planner: basePlanner,
     toolsRegistry,
+    skillRegistry,
     llmProvider: selectedLlmProvider,
     logger,
   });
@@ -38,7 +42,7 @@ function createBaseAgent({
   const { Reviewer } = require("./reviewer");
   const reviewer = new Reviewer({ llmProvider: selectedLlmProvider, logger });
 
-  const executor = new Executor({ toolsRegistry, logger });
+  const executor = new Executor({ toolsRegistry, skillRegistry, logger });
   const memory = memoryFactory(name);
 
   return new BaseAgent({
