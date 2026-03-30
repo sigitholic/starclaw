@@ -14,6 +14,27 @@ const app = express();
 const server = http.createServer(app);
 const wsServer = new WebSocketServer({ server, path: "/ws" });
 
+// CORS — izinkan request dari dashboard (beda port = beda origin di browser)
+app.use((req, res, next) => {
+  const origin = req.headers.origin || "";
+  // Izinkan: localhost, 127.0.0.1, dan semua IP jaringan lokal (192.168.x.x, 10.x.x.x, 172.x.x.x)
+  const isAllowed =
+    !origin ||
+    /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin) ||
+    /^https?:\/\/(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(origin);
+
+  if (isAllowed) {
+    res.setHeader("Access-Control-Allow-Origin", origin || "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  }
+
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(204);
+  }
+  next();
+});
+
 app.use(express.json());
 
 function sendWsMessage(data) {
