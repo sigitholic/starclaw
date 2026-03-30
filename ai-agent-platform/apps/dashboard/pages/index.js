@@ -28,13 +28,17 @@ function buildAgentEdges() {
   ];
 }
 
+const API_HOST = typeof window !== "undefined" ? window.location.hostname : "localhost";
+const API_BASE = `http://${API_HOST}:8080`;
+const WS_URL = `ws://${API_HOST}:8080/ws`;
+
 export default function Home() {
   const [events, setEvents] = useState([]);
   const [agentStatus, setAgentStatus] = useState({});
   const [wsState, setWsState] = useState("disconnected");
 
   useEffect(() => {
-    const ws = new WebSocket("ws://127.0.0.1:8080/ws");
+    const ws = new WebSocket(WS_URL);
     setWsState("connecting");
 
     ws.onopen = () => setWsState("connected");
@@ -97,7 +101,7 @@ export default function Home() {
           <button
             type="button"
             onClick={async () => {
-              await fetch("http://127.0.0.1:8080/tasks/run", {
+              await fetch(`${API_BASE}/tasks/run`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
