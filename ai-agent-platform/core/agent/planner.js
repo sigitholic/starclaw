@@ -20,6 +20,29 @@ function needsStructuredPlannerMessage(message) {
   return /audit|map|analy|gap|openclaw|architecture|arsitektur/i.test(m);
 }
 
+/**
+ * Deteksi permintaan daftar skill/plugin (rule-based, sebelum LLM) — hindari salah ke check-server-resource karena kata "server".
+ */
+function detectListSkillsOrPluginsIntent(text) {
+  const t = String(text || "").toLowerCase();
+  if (!t.trim()) return null;
+  const wantsList =
+    /\b(list|daftar|tampilkan|lihat|cek|show|what|apa)\b/i.test(t) ||
+    /\b(kamu|anda|kau)\b.*\b(skill|skills|kemampuan|plugin|plugins)\b/i.test(t);
+  const asksSkills =
+    /\bskills?\b/.test(t) ||
+    /\bskill\b/.test(t) ||
+    /kemampuan/.test(t);
+  const asksPlugins =
+    /\bplugins?\b/.test(t) ||
+    /\bplugin\b/.test(t) ||
+    /add-on/.test(t);
+  if (wantsList && asksSkills && !asksPlugins) return "list-skills";
+  if (wantsList && asksPlugins && !asksSkills) return "list-plugins";
+  if (wantsList && asksSkills && asksPlugins) return "list-skills";
+  return null;
+}
+
 class Planner {
   constructor({ llmProvider, promptBuilder, toolsRegistry, skillRegistry, logger }) {
     this.llmProvider = llmProvider;
@@ -176,6 +199,79 @@ class Planner {
       !needsStructuredPlannerMessage(message) &&
       !hasOpenclawSnap
     ) {
+      const listHeuristic = detectListSkillsOrPluginsIntent(message);
+      if (listHeuristic === "list-plugins" && this.skillRegistry.has("manage-plugin")) {
+        const raw = {
+          action: "skill",
+          skill_name: "manage-plugin",
+          input: { mode: "plugin", action: "list" },
+          summary: "Daftar plugin (rule-based)",
+        };
+        const normalizedPlan = normalizePlannerDecision(raw);
+        normalizedPlan.intentType = "list-intent-heuristic";
+        // eslint-disable-next-line no-console
+        console.log("PLANNER RESULT:", normalizedPlan);
+        this.logger.info("Planner decision (heuristic → list plugins)", {
+          decision: normalizedPlan.plannerDecision,
+        });
+        if (eventBus) {
+          await eventBus.emit(EVENT_TYPES.PLANNER_DECISION, {
+            timestamp: new Date().toISOString(),
+            agent: agentName,
+            payload: {
+              decision: normalizedPlan.plannerDecision,
+              stepCount: normalizedPlan.steps.length,
+              summary: normalizedPlan.summary,
+              toolsInPrompt: selectedSchemas.length,
+              source: "list-skills-heuristic",
+              intentType: "system",
+            },
+          });
+        }
+        return normalizedPlan;
+      }
+      if (listHeuristic === "list-skills") {
+        const items =
+          typeof this.skillRegistry.getSkillList === "function"
+            ? this.skillRegistry.getSkillList()
+            : (this.skillRegistry.list() || []).map((name) => ({
+              name,
+              description: "",
+            }));
+        const body = items.length
+          ? items
+            .map((i) => `• ${i.name}${i.description ? `: ${i.description}` : ""}`)
+            .join("\n")
+          : "(Belum ada skill terdaftar.)";
+        const responseText = `Skill yang tersedia:\n${body}`;
+        const normalizedPlan = normalizePlannerDecision({
+          action: "respond",
+          response: responseText,
+          summary: "Daftar skill (rule-based)",
+        });
+        normalizedPlan.intentType = "list-intent-heuristic";
+        // eslint-disable-next-line no-console
+        console.log("PLANNER RESULT:", normalizedPlan);
+        this.logger.info("Planner decision (heuristic → list skills)", {
+          decision: normalizedPlan.plannerDecision,
+        });
+        if (eventBus) {
+          await eventBus.emit(EVENT_TYPES.PLANNER_DECISION, {
+            timestamp: new Date().toISOString(),
+            agent: agentName,
+            payload: {
+              decision: normalizedPlan.plannerDecision,
+              stepCount: normalizedPlan.steps.length,
+              summary: normalizedPlan.summary,
+              toolsInPrompt: selectedSchemas.length,
+              source: "list-skills-heuristic",
+              intentType: "system",
+            },
+          });
+        }
+        return normalizedPlan;
+      }
+
       let llmIntent = null;
       try {
         llmIntent = await detectIntentLLM(message, {

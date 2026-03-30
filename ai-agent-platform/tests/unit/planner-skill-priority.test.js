@@ -24,6 +24,17 @@ test("plan: list skills → chat", () => {
   assert.equal(p.type, "chat");
 });
 
+test("plan: cek list skill → chat (bukan check-server-resource karena kata server di skill)", () => {
+  const p = plan("cek list skill");
+  assert.equal(p.type, "chat");
+});
+
+test("plan: cek status server → check-server-resource", () => {
+  const p = plan("cek status server");
+  assert.equal(p.type, "skill");
+  assert.equal(p.skill, "check-server-resource");
+});
+
 test("plan: salam → chat", () => {
   assert.equal(plan("halo").type, "chat");
   assert.equal(plan("malam").type, "chat");

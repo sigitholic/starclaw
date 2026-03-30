@@ -1,5 +1,7 @@
 "use strict";
 
+const { extractIP } = require("./intent.skill.match");
+
 const SAFE_SKILL_SHELL_COMMANDS = ["ping"];
 const SAFE_SERVER_RESOURCE_CMD_PREFIX = "top -b -n 1";
 
@@ -35,7 +37,7 @@ function reviewShellToolExecution(input) {
   return null;
 }
 
-function buildReviewerInputForSkillStep(step) {
+function buildReviewerInputForSkillStep(step, userMessage = "") {
   const o = step && step.input && typeof step.input === "object" ? step.input : {};
   const target = typeof o.target === "string" ? o.target.trim() : "";
   const explicit = o.command || o.cmd;
@@ -45,7 +47,12 @@ function buildReviewerInputForSkillStep(step) {
   } else if (target) {
     command = `ping -c 4 ${target}`;
   } else {
-    command = "pwd";
+    const ipFromUser = extractIP(typeof userMessage === "string" ? userMessage : "");
+    if (ipFromUser) {
+      command = `ping -c 4 ${ipFromUser}`;
+    } else {
+      command = "pwd";
+    }
   }
   return {
     command,
@@ -94,7 +101,7 @@ class Reviewer {
   }
 
   async reviewPlan(plan, input) {
-    const shellDecision = this.evaluateShellStepsInPlan(plan);
+    const shellDecision = this.evaluateShellStepsInPlan(plan, input);
     if (shellDecision) {
       return shellDecision;
     }
@@ -123,11 +130,12 @@ class Reviewer {
   /**
    * Pre-flight untuk shell: blokir shell-tool tanpa konteks skill; izinkan skill+ping; lainnya → LLM.
    */
-  evaluateShellStepsInPlan(plan) {
+  evaluateShellStepsInPlan(plan, input = {}) {
     if (!planTouchesShellTool(plan)) {
       return null;
     }
 
+    const userMessage = input && typeof input.message === "string" ? input.message : "";
     const steps = Array.isArray(plan.steps) ? plan.steps : [];
     let needsLlm = false;
 
@@ -135,7 +143,7 @@ class Reviewer {
       if (!step) continue;
 
       if (step.isSkill && step.tool === "run-system-command") {
-        const shellInput = buildReviewerInputForSkillStep(step);
+        const shellInput = buildReviewerInputForSkillStep(step, userMessage);
         const local = reviewShellToolExecution(shellInput);
         if (local && local.allow === false) {
           return {

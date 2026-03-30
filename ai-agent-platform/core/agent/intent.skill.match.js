@@ -99,8 +99,13 @@ function plan(userInput, shortMemory = null) {
     };
   }
 
-  // PRIORITY 4: SERVER (GENERIC)
-  if (text.includes("server")) {
+  // PRIORITY 4: SERVER — hanya jika konteks resource/status (bukan "list skill" / substring server di kata lain)
+  const mentionsServer = /\bserver\b/.test(text) || /\bhost\b/.test(text);
+  const wantsResourceContext =
+    /\b(cpu|ram|memory|memori|load|resource|usage|pakai|gunakan|berapa|kondisi|status|performa|usage)\b/i.test(
+      msg,
+    );
+  if (mentionsServer && wantsResourceContext) {
     return {
       type: "skill",
       skill: "check-server-resource",

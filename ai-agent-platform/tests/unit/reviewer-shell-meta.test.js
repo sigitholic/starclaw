@@ -3,6 +3,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
+  Reviewer,
   reviewShellToolExecution,
   planTouchesShellTool,
 } = require("../../core/agent/reviewer");
@@ -64,4 +65,20 @@ test("planTouchesShellTool: mendeteksi shell-tool langsung", () => {
     }),
     true
   );
+});
+
+test("Reviewer: ping skill tanpa target di step tapi IP di pesan user → izinkan (bukan pwd)", () => {
+  const reviewer = new Reviewer({
+    llmProvider: {},
+    logger: { warn() {} },
+  });
+  const plan = {
+    plannerDecision: "skill",
+    steps: [{ isSkill: true, tool: "run-system-command", input: {} }],
+  };
+  const decision = reviewer.evaluateShellStepsInPlan(plan, {
+    message: "ping 192.168.88.20",
+  });
+  assert.ok(decision);
+  assert.equal(decision.approved, true);
 });
